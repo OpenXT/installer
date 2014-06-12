@@ -1,0 +1,313 @@
+#!/bin/ash
+#
+# Graph-driven script controller
+#
+# Copyright (c) Citrix Systems, 2009-2010
+# Author: Christopher Clark
+#
+# Graph definition format: text file containing lines thus:
+#
+# <script A name>, LabelOne:<script B name> | LabelTwo:<script C name>
+# <script B name>, LabelThree:<script F name> 
+#
+# Example:
+#
+# Start,               Continue:Welcome
+# Welcome,             Continue:EULA
+# EULA,                Continue:Choose-install-type
+# Choose-install-type, Optical:Optical-drive-verification | Network:Network-install
+# Network-install,     Continue:Select-NIC
+# Set-password,        Continue:End{Continue}
+# ErrorHandler,        Continue:End{Abort}
+#
+# The label 'End' is the exit condition. The exit status is determined by the
+# suffix in curly braces. If omitted, it defaults to Continue.
+#
+# The child scripts indicate their exit action by their exit return code.
+# The return code to use is defined by the label in the graph, exported to the
+# environment of the child process.
+#
+# eg. From the above example, script "Choose-install-type" can indicate
+#     that the next script should be the "Optical-install" script by exitting thus:
+#
+# exit ${Optical}
+#
+#     as the value of "Optical" is set in the child process environment
+#     due to its presence in the graph definition file, and is acted upon
+#     by this script controller when the child script returns.
+#
+# The special label "Previous" is used to navigate back to the previous step
+# in the graph traversal; the driver maintains the history of graph navigation
+# enable this.
+#
+# The special node "Start" with a "Continue" exit label defines the first
+# action taken.
+#
+# The special node "ErrorHandler" with a "Continue" exit label defines the
+# action taken when a script exits indicating error with a non-exit label
+# return code.
+#
+# A special suffix, using curly braces in a step name, allows a single script
+# to be used # multiple times in different parts of the graph.
+#
+# eg.
+#
+# Install-extra,    Continue:Eject-cd{extra}
+# Eject-cd{extra},  Continue:Configure-next
+# ...
+# Eject-cd{final},  Continue:Reboot
+#
+# The braces are removed before looking for the script filename.
+
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+
+# Argument handling:
+usage() {
+    NAME="$1"
+    cat <<EOF
+${NAME} [ -p <path file> ] [ -r ] <graph sequence file>
+
+options:
+    -p <path file> : File to read and write path traversed.
+                     Read to execute reverse navigation.
+                     Written on completion of forwards navigation.
+    -r             : Execute path in reverse; requires -p; negates -f.
+    -f             : Execute path forwards; negates -r. Default.
+EOF
+}
+
+parse_args() {
+    NAVIGATION=0 # Forwards
+    unset PATH_FILE
+
+    while [ -n $1 ]
+    do
+        case "$1" in
+            -p) PATH_FILE="$2"
+                shift;;
+            -r) NAVIGATION=1 # Backwards
+                ;;
+            -f) NAVIGATION=0 # Forwards
+                ;;
+            -*) return 1
+                ;;
+            *)  break;
+                ;;
+        esac
+        shift
+    done
+
+    [ $# -eq 1 ] || return 1
+    [ ${NAVIGATION} -eq 0 ] || [ -n "${PATH_FILE}" ] || return 1
+
+    SEQ="$1"
+    # SCRIPT_DIR is exported to make it available to executed scripts:
+    export SCRIPT_DIR="$(dirname "${SEQ}")"
+}
+parse_args $@ || { usage $0 ; exit 1 ; }
+
+# Log the start of the sequence
+cat <<EOF >&2
+
+Sequence started.
+        Graph sequence file: ${SEQ}
+        Navigation: ${NAVIGATION}
+        Path file: ${PATH_FILE:-<none>}
+EOF
+
+# Syntax check the graph file
+syntax_check () {
+    GRAPH=$1
+    if [ ! -r ${GRAPH} ] ; then
+        echo "ERROR: missing graph sequence file: ${GRAPH}" >&2
+        exit 1
+    fi
+    BAD_LINES="$(sed <${GRAPH} -e '/^$/d' -e '/^[^,]*,\s*\(\w\w*:[^ ,|:][^ ,|:]*\s*|\s*\)*\w\w*:[^ ,|:][^ ,|:]*\s*$/d')"
+    if [ ! -z "${BAD_LINES}" ] ; then
+        echo "ERROR: Malformed graph sequence file: ${GRAPH}" >&2
+        echo "ERROR: ${BAD_LINES}" >&2
+        exit 1
+    fi
+}
+
+syntax_check "${SEQ}"
+
+# Assign a numeric return code to each node exit action in the graph
+assign_return_codes () {
+    ACTIONS="Continue Previous Abort UnexpectedAbort"
+
+    # Read any other actions from the graph definition file
+    MORE_ACTIONS=$(sed -e 's/:[^:]*|//g' -e 's/:[^:]*$//' -e "s/^[^,]*\s*,\s*//" -e "/^$/d" -e "s/ /\n/g" <${SEQ} | sort | uniq)
+
+    for ACTION in ${ACTIONS} ${MORE_ACTIONS} ; do
+        unset ${ACTION}
+    done
+
+    export Continue=64
+    export Previous=65
+    export Abort=66
+    export UnexpectedAbort=67
+    ACTION_CODE=68
+
+    for ACTION in ${MORE_ACTIONS} ; do
+        if [ -z $(eval "echo \$$ACTION") ] ; then
+            export ${ACTION}=${ACTION_CODE}
+            #echo "Assigning ${ACTION} a return code of: ${ACTION_CODE}"
+            ACTION_CODE=$( expr $ACTION_CODE + 1 )
+            ACTIONS="${ACTIONS}${ACTIONS:+ }${ACTION}"
+        fi
+    done
+}
+
+assign_return_codes
+
+# Advance to the next script in the graph by following ${ACTION}
+next_script_from_seq () {
+    STEP=$(sed -ne "/^${STEP}\s*,/ s/^.*\(,\||\)\s\s*${ACTION}:\([^ \|]*\).*$/\2/p" <${SEQ})
+    SCRIPT=$(echo -n "${STEP}" | sed -e 's/{[^{]\+}$//')
+    SUFFIX=$(echo -n "${STEP}" | sed -ne 's/^.*{\([^{]\+\)}$/\1/p')
+}
+
+init_forwards()
+{
+    # The Start node defines the first step, with the Continue label
+    STEP="Start"
+    ACTION="Continue"
+    next_script_from_seq
+    if [ -z ${SCRIPT} ] ; then
+        echo "ERROR: Graph sequence file: ${SEQ}" >&2
+        echo "ERROR: does not define the Start node with Continue action" >&2
+        exit 1
+    fi
+
+    # Maintain a history of the graph traversal to allow backwards navigation
+    TRAVERSED=""
+
+    # Indicate to script whether forward or backward navigation
+    unset DIRECTION
+}
+
+step_back()
+{
+        if [ -z "${TRAVERSED}" ] ; then
+            echo -e "Sequence reversed.\n" >&2
+            # NB: We do _not_ rewrite the path file here:
+            exit ${Previous}
+        fi
+        STEP=$(echo ${TRAVERSED} | sed 's/^.*://')
+        SCRIPT=$(echo -n "${STEP}" | sed -e 's/{[^{]\+}$//')
+        SUFFIX=$(echo -n "${STEP}" | sed -ne 's/^.*{\([^{]\+\)}$/\1/p')
+        [ "x" != "x${STEP}" ] || exit 1
+        TRAVERSED=$(echo ${TRAVERSED} | sed -ne 's/^\(.*\):.*$/\1/p')
+        DIRECTION="--previous"
+}
+
+init_backwards()
+{
+    unset TRAVERSED
+    # This will populate TRAVERSED:
+    . "$(dirname ${PATH_FILE})/$(basename ${PATH_FILE})"
+    if [ -z ${TRAVERSED} ] ; then
+        echo "ERROR: Path file: ${PATH_FILE}" >&2
+        echo "ERROR: does not define TRAVERSED." >&2
+        exit 1
+    fi
+    step_back
+
+    if [ -z ${SCRIPT} ] ; then
+        echo "ERROR: Graph sequence file: ${SEQ}" >&2
+        echo "ERROR: does not define the ${STEP} node." >&2
+        exit 1
+    fi
+}
+
+if [ "${NAVIGATION}" -eq 0 ] ; then
+    init_forwards
+else
+    init_backwards
+fi
+
+# Run the graph
+while [ "x${SCRIPT}" != "xEnd" ] ; do
+
+    if [ -z ${SCRIPT} ] || [ ! -x ${SCRIPT_DIR}/${SCRIPT} ] ; then
+        echo "ERROR: Invalid graph or missing executable script: ${SCRIPT}" >&2
+        [ "x${SCRIPT}" != "xErrorHandler" ] || exit 1
+        STEP="ErrorHandler"
+        ACTION="Continue"
+        next_script_from_seq
+        [ ! -z "${SCRIPT}" ] || exit 1
+        continue
+    fi
+
+    # Run the script, get the result:
+    echo -e "Step: ${STEP}\nRunning: ${SCRIPT} ${DIRECTION}">&2
+    ${SCRIPT_DIR}/${SCRIPT} ${DIRECTION}
+    RESULT=$?
+
+    # "Previous" requires special handling; need to maintain traversal history
+    if [ ${RESULT} -eq ${Previous} ] ; then
+        echo "        ${SCRIPT} returned: Previous">&2
+        step_back
+        continue
+    else
+        TRAVERSED="${TRAVERSED}${TRAVERSED:+:}${STEP}"
+        unset DIRECTION
+    fi
+
+    # Use the result to determine which script to run next:
+    unset ACTION_FOUND
+    for ACTION in ${ACTIONS} ; do
+        MATCH=$(eval "echo \$$ACTION")
+        if [ "x${RESULT}" = "x${MATCH}" ] ; then
+            echo "        ${SCRIPT} returned: ${ACTION}">&2
+            next_script_from_seq
+
+            # To avoid cycles in ${TRAVERSED}, scan to see if sequence has
+            # navigated to ${STEP} previously; if so truncate rather than append.
+            ESCAPED_STEP="$(echo "${STEP}" | sed -e 's/\({\|}\)/\\\1/g')"
+            if echo "${TRAVERSED}" | egrep -q '(^|:)'"${ESCAPED_STEP}"'(:|$)' ; then
+                TRAVERSED="$(echo "${TRAVERSED}" | sed -e 's/\(^\(.*:\)*\)'"${STEP}"'\(:.*$\|$\)/\1/' -e 's/:$//')"
+            fi
+
+            ACTION_FOUND=1
+            break
+        fi
+    done
+    if [ -n "${ACTION_FOUND}" ] ; then continue ; fi
+
+    # Error handling: the return code was not one of the defined exit actions
+    echo "Error when executing ${SCRIPT}, return code: ${RESULT}" >&2
+
+    # Does the graph define a "ErrorHandler" node, with a Continue label?
+    if [ "x${SCRIPT}" != "xErrorHandler" ] ; then
+        STEP="ErrorHandler"
+        ACTION="Continue"
+        next_script_from_seq
+
+        [ -z "${SCRIPT}" ] || continue
+    fi
+    exit ${RESULT}
+
+    assign_return_codes
+done
+
+echo -e "Sequence completed.\n">&2
+[ -z "${PATH_FILE}" ] || echo "TRAVERSED='${TRAVERSED}'" >"${PATH_FILE}"
+[ -z "${SUFFIX}" ] || exit $(eval "echo \$$SUFFIX")
+exit ${Continue}

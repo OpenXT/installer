@@ -1,0 +1,56 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+# Remove any present config files
+rm -rf "${INSTALL_DATA}"
+
+# Ensure the presence of the installation data directory
+mkdir -p "${INSTALL_DATA}"
+
+# Ensure the presence of the supplemental pack data directory
+mkdir -p "${EXTRA_DATA}"
+
+# Remove part 2 if present.
+rm -rf "${INSTALL_ROOT_PART2}"
+
+# Initialise the supplemental pack sequence
+rm -rf "${EXTRA_DATA_SEQUENCE}" 2>/dev/null
+mkdir "${EXTRA_DATA_SEQUENCE}"
+
+# Unmount any previously-mounted repositories
+do_umount "${OPTICAL_MOUNT}" 2>/dev/null
+do_umount "${USB_MOUNT}" 2>/dev/null
+do_umount "${NFS_MOUNT}" 2>/dev/null
+do_umount "${HARD_DISK_REPO_MOUNT}" 2>/dev/null
+do_umount "${ISCSI_REPO_MOUNT}" 2>/dev/null
+
+# Ensure the presence of the directory containing packages to install
+rm -rf "${INSTALL_SOURCE_DIR}" 2>/dev/null
+mkdir -p "${INSTALL_SOURCE_DIR}"
+
+# Preserve a copy of the kernel command line
+cat </proc/cmdline >${KCMD_LINE}
+
+# if we're using linuxfb graphics (from grub) rather than mode 3
+# we need to enable text mode here. no-op for non graphical installs
+modprobe fbcon || true
+
+exit ${Continue}

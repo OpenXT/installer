@@ -1,0 +1,66 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+# answerfile <source> tags:
+#
+# <source type="harddisk">sda1</source>
+
+not_previous || exit ${Previous}
+
+if ! answerfile_specifies "source" ; then
+    # Installing from hard disk can only be triggered via answerfile.
+    echo "ERROR: Installing from hard disk, but answerfile omits <source>." >&2
+    exit ${Abort}
+fi
+
+SOURCE_TYPE=$(read_xml_attr "${ANSWERFILE}" "source" "type")
+
+if [ "${SOURCE_TYPE}" != "harddisk" ] ; then
+    echo "ERROR: Installing from hard disk, but answerfile specifies" \
+         "source type '${SOURCE_TYPE}'." >&2
+    exit ${Abort}
+fi
+
+SOURCE_DEVICE=$(read_kcmdline_opt "source_dev")
+
+if [ -z "${SOURCE_DEVICE}" ] ; then
+    SOURCE_DEVICE=$(read_xml_tag "${ANSWERFILE}" "source")
+
+    if [ -z "${SOURCE_DEVICE}" ] ; then
+        echo "ERROR: Installing from hard disk, but source device is not" \
+             "specified either on kernel command line or in answerfile." >&2
+        exit ${Abort}
+    fi
+fi
+
+SOURCE_DEVICE_IS_OEM=$(read_xml_attr "${ANSWERFILE}" "source" "oem")
+
+case $(echo "${SOURCE_DEVICE_IS_OEM}" | tr "[:upper:]" "[:lower:]") in
+    true|yes) EXTRA_OEM_PARTITIONS="${SOURCE_DEVICE}"  ;;
+    *)        EXTRA_OEM_PARTITIONS= ;;
+esac
+
+cat <<EOF > "${HARD_DISK_REPO_CONF}"
+HARD_DISK_REPO_DEVICE='${SOURCE_DEVICE}'
+EXTRA_OEM_PARTITIONS='${EXTRA_OEM_PARTITIONS}'
+EOF
+
+exit ${Continue}

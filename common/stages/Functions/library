@@ -1,0 +1,302 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+# Set locale for dialog
+LANG="en_US.UTF-8"
+export LANG
+
+#-----------------------------------------------------------
+# Log a command line to be run to stderr, and then execute it
+do_cmd()
+{
+    cat <<EOF >&2
+$@
+EOF
+    "$@"
+}
+
+# execute dialog and stores its output in the variable d
+d()
+{
+    do_cmd dialog "$@" 2>out
+    ret=$?
+    out="$(<out)"
+    rm out
+    return $ret
+}
+
+# handle the console cursor
+hide_cursor () {
+    if tty -s ; then
+        /bin/echo -ne '\033[?81;0;0c'
+    fi
+}
+hide_cursor # do this here so each script starts off hidden
+
+show_cursor () {
+    if tty -s ; then
+        /bin/echo -ne '\033[?0;0;16c'
+    fi
+}
+
+mixedgauge()
+{
+    text="$1"
+    percent="$2"
+    height="$3"
+    [ ! -z "$height" ] || height="0"
+    width="$4"
+    [ ! -z "$width" ] || width="0"
+    hide_cursor
+    if [ ${INTERACTIVE} -ne 0 ] ; then
+        echo "${text}">&2
+    else
+        d --mixedgauge "$text" "$width" "$height" "$percent"
+    fi
+}
+
+# Make the 'interactive' function cheaper by only reading
+# the contents of the config file once, here, and caching.
+read_interactive()
+{
+    # 0: is interactive
+    # 1: non-interactive
+    [ -e "${AUTOMATED_CONF}" ] || return 0
+    grep -qi "AUTOMATED=True" <"${AUTOMATED_CONF}" || return 0
+    return 1
+}
+if [ -z "${INTERACTIVE}" ] ; then
+    export INTERACTIVE=0
+    read_interactive || export INTERACTIVE=1
+fi
+interactive()
+{
+    return ${INTERACTIVE}
+}
+
+read_kcmdline_opt()
+{
+    OPT="$1"
+    sed -ne 's/^.*'"${OPT}"'=\(\S\+\).*$/\1/p' <${KCMD_LINE}
+}
+
+pretty_size()
+{
+    SIZE_IN_BLOCKS="$1"
+    if [ -z "${SIZE_IN_BLOCKS}" ] ; then
+        echo "0 KB"
+    elif [ "${SIZE_IN_BLOCKS}" -lt 2048 ] ; then
+        echo "$(( SIZE_IN_BLOCKS / 2 )) KB"
+    elif [ "${SIZE_IN_BLOCKS}" -lt 2097152 ] ; then
+        echo "$(( SIZE_IN_BLOCKS / 2048 )) MB"
+    else
+        echo "$(( SIZE_IN_BLOCKS / 2097152 )) GB"
+    fi
+    return 0
+}
+
+read_previous()
+{
+    for ARG in $@ ; do
+        if [ "x${ARG}" == "x--previous" ] ; then
+            export PREVIOUS=0
+            return
+        fi
+    done
+
+    export PREVIOUS=1
+}
+
+read_previous $@
+
+not_previous()
+{
+    # PREVIOUS=0: '--previous' argument was found
+    # PREVIOUS=1: '--previous' argument was not found
+
+    if [ "$PREVIOUS" -eq 0 ] ; then
+        return 1
+    else
+        return 0
+    fi
+}
+
+#-----------------------------------------------------------
+
+do_edit_item()
+{
+    ITEM="$1"
+    VALUE="$2"
+    CAPTURE=$(mktemp -t)
+    show_cursor
+    dialog --inputbox "Please enter value for ${ITEM}" 0 40 "${VALUE}" 2>${CAPTURE}
+    OPT="$?"
+    hide_cursor
+    if [ ${OPT} != 0 ] ; then
+        rm -f ${CAPTURE}
+        [ ${OPT} != 1 ]   || return 0
+        [ ${OPT} != 255 ] || return 0
+        return 1
+    fi
+    VALUE=$(cat ${CAPTURE})
+    rm -f ${CAPTURE}
+    return 0
+}
+
+#-----------------------------------------------------------
+
+hook()
+{
+    HOOK_NAME="$1"
+    not_previous || return ${Previous}
+
+    if answerfile_specifies "${HOOK_NAME}" ; then
+        SCRIPT=$(mktemp -t)
+        extract_script_from_tag "${ANSWERFILE}" "${HOOK_NAME}" "${SCRIPT}"
+
+        [ -x "${SCRIPT}" ] || return ${Abort}
+        "${SCRIPT}"
+        RET="$?"
+        rm -f "${SCRIPT}"
+        [ "${RET}" = "0" ] || return ${Abort}
+    fi
+    return ${Continue}
+}
+
+#-----------------------------------------------------------
+
+get_var()
+{
+    eval echo "\$$1"
+}
+
+#-----------------------------------------------------------
+
+# Mounts a filesystem, creating the mount point if necessary, and verifying
+# that the mount point is under MOUNT_ROOT. Same arguments as for "mount".
+#
+# Note: All mount points should be under MOUNT_ROOT, so that the installer
+# can make sure everything is unmounted when it finishes.
+#
+do_mount()
+{
+    local MNT=$(eval echo "\$$#")
+
+    validate_mount_point "${MNT}" || return 1
+
+    do_cmd mkdir -p "${MNT}"
+    do_cmd mount "$@" || return 1
+    return 0
+}
+
+# Unmounts a filesystem. Pass the mount point, not the device.
+#
+# Note: A filesystem can be mounted more than once, so using the mount point
+# rather than the device ensures that the correct mount is removed.
+#
+do_umount()
+{
+    local MNT="$1"
+
+    validate_mount_point "${MNT}" || return 1
+    do_cmd umount "$@" || return 1
+
+    return 0
+}
+
+# Unmounts all filesystems mounted under MOUNT_ROOT.
+#
+do_umount_all()
+{
+    local MNT
+    local RET=0
+
+    echo "Unmounting all filesystems under '${MOUNT_ROOT}'" >&2
+    for MNT in $(cut -f2 -d' ' /proc/mounts |
+                 grep "^${MOUNT_ROOT}/." |
+                 sed '1!G;h;$!d') ; do
+        do_cmd umount "${MNT}" || RET=1
+    done
+
+    return ${RET}
+}
+
+validate_mount_point()
+{
+    local MNT="$1"
+
+    case "${MNT}" in
+        ${MOUNT_ROOT}/?*) return 0 ;;
+    esac
+
+    echo "ERROR: Mount point '${MNT}' not under '${MOUNT_ROOT}'" >&2
+    return 1
+}
+
+#-----------------------------------------------------------
+
+kill_welcome_screen()
+{
+    if [ -r "${DIALOG_PID_FILE}" ] ; then
+        local DIALOG_PID=$(cat "${DIALOG_PID_FILE}")
+        kill ${DIALOG_PID}
+        rm -f "${DIALOG_PID_FILE}"
+    fi
+}
+
+#-----------------------------------------------------------
+
+find_physical_nics()
+{
+    # Make sure udev is done for good.
+    udevadm settle
+    # Apparently it is possible that udev has not yet
+    # loaded the proper module and be settle (HP8300).
+    # WAIT_FOR_SYSFS does not fix that.
+    TO=0
+    while [ ${TO} -lt 10 ]; do
+        COUNT=0
+        for SYS_NIC in /sys/class/net/eth* ; do
+            case "$(cat ${SYS_NIC}/address 2>/dev/null)" in
+            00:00:00:00:00:00) continue ;;
+            fe:ff:ff:ff:ff:ff) continue ;;
+            ff:ff:ff:ff:ff:ff) continue ;;
+            "")                continue ;;
+            *)
+                n=`basename ${SYS_NIC}`
+                echo -n "${n} "
+                COUNT=$((COUNT + 1))
+                ;;
+            esac
+        done
+        [ ${COUNT} -gt 0 ] && break
+        TO=$((TO + 1))
+        sleep 1
+    done
+    return ${COUNT}
+}
+
+#-----------------------------------------------------------
+
+# Equivalent to: [ $1 -ge $2 ]
+# but also works if the values are outside the range of a 32-bit integer.
+bc_greater_or_equal()
+{
+    [ $(echo "$1 >= $2" | bc) = "1" ]
+}

@@ -1,0 +1,114 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+install_vhds()
+{
+    [ -r ${VHD_CONF} ] || return 1
+
+    . ${VHD_CONF}
+
+    if [ "${VHD_COUNT}" -gt 0 ] ; then
+        for VHD_NUM in $(seq 1 "${VHD_COUNT}") ; do
+            install_vhd "${VHD_NUM}" || vhd_unwind || return 1
+        done
+    fi
+
+    return 0
+}
+
+install_vhd()
+{
+    local VHD_NUM="$1"
+
+    local VHD_UUID=$(get_var "VHD_${VHD_NUM}_UUID")
+    local VHD_COMPRESS=$(get_var "VHD_${VHD_NUM}_COMPRESS")
+    local VHD_SOURCE_COUNT=$(get_var "VHD_${VHD_NUM}_SOURCE_COUNT")
+
+    do_cmd mkdir -p "${DOM0_MOUNT}/storage/disks" || return 1
+
+    local VHD_FILE="${DOM0_MOUNT}/storage/disks/${VHD_UUID}.vhd"
+    do_cmd rm -f "${VHD_FILE}"
+
+    for VHD_SOURCE_NUM in $(seq 1 "${VHD_SOURCE_COUNT}") ; do
+        local VHD_SOURCE=$(get_var "VHD_${VHD_NUM}_SOURCE_${VHD_SOURCE_NUM}")
+
+        if ! fetch_vhd_fragment "${VHD_SOURCE}" "${VHD_FILE}" ; then
+            if interactive ; then
+                dialog --ok-label "Continue" \
+                    --msgbox "ERROR: Failed to retrieve virtual machine hard disk image from:\n\n    ${VHD_SOURCE}" 0 0
+            fi
+
+            return 1
+        fi
+    done
+
+    decompress_vhd "${VHD_FILE}" "${VHD_COMPRESS}" || return 1
+
+    return 0
+}
+
+fetch_vhd_fragment()
+{
+    local VHD_SOURCE="$1"
+    local VHD_FILE="$2"
+
+    if [ -e "${VHD_FILE}" ] ; then
+        local TEMP_FILE="${VHD_FILE}.tmp"
+        fetch_file "${VHD_SOURCE}" "${TEMP_FILE}" || return 1
+        do_cmd cat "${TEMP_FILE}" >> "${VHD_FILE}" || return 1
+        do_cmd rm -f "${TEMP_FILE}" || return 1
+    else
+        fetch_file "${VHD_SOURCE}" "${VHD_FILE}" || return 1
+    fi
+
+    return 0
+}
+
+decompress_vhd()
+{
+    local VHD_FILE="$1"
+    local VHD_COMPRESS="$2"
+
+    local TEMP_FILE="${VHD_FILE}.tmp"
+
+    case "${VHD_COMPRESS}" in
+        gzip)
+            do_cmd mv "${VHD_FILE}" "${TEMP_FILE}" || return 1
+            do_cmd gunzip < "${TEMP_FILE}" > "${VHD_FILE}" || return 1
+            rm -f "${TEMP_FILE}" || return 1
+            ;;
+
+        bzip2)
+            do_cmd mv "${VHD_FILE}" "${TEMP_FILE}" || return 1
+            do_cmd bunzip2 < "${TEMP_FILE}" > "${VHD_FILE}" || return 1
+            rm -f "${TEMP_FILE}" || return 1
+            ;;
+
+        "")
+            ;;
+
+        *)
+            echo "ERROR: Invalid compression type '${VHD_COMPRESS}' for" \
+                 "VHD." >&2
+            return 1
+            ;;
+    esac
+
+    return 0
+}

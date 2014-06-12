@@ -1,0 +1,100 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+RUN_GRAPH_SCRIPT="./run-graph"
+
+usage()
+{
+    cat <<EOF >&2
+$0 -c <config file> -p <path file> [-r] <graph>
+
+options:
+
+    -c <config file>  file containing configuration data.
+
+    -p <path file>    file to read and write path traversed; read to execute
+                      reverse navigation; written on completion of forwards
+                      navigation.
+
+    -r                execute path in reverse.
+
+    <graph>           one of: install-main, install-extra, preserve-data,
+                      commit-main, commit-extra.
+
+EOF
+}
+
+parse_args()
+{
+    NAVIGATION=0 # Forwards
+    unset PATH_FILE
+    unset CONFIG_FILE
+
+    while [ -n "$1" ] ; do
+        case "$1" in
+            -c) CONFIG_FILE="$2"
+                shift
+                ;;
+            -p) PATH_FILE="$2"
+                shift
+                ;;
+            -r) NAVIGATION=1
+                ;;
+            -*) return 1
+                ;;
+            *)  break
+                ;;
+        esac
+        shift
+    done
+
+    [ $# -eq 1 ] || return 1
+    [ "${CONFIG_FILE}" ] || return 1
+
+    GRAPH_FILE="stages/$1.graph"
+}
+
+if ! parse_args "$@" ; then
+    usage
+    exit 1
+fi
+
+if [ ! -x "${RUN_GRAPH_SCRIPT}" ] ; then
+    echo "This script must be run from the directory containing the" \
+         "'${RUN_GRAPH_SCRIPT}' script." >&2
+    exit 1
+fi
+
+if [ ! -r "${GRAPH_FILE}" ] ; then
+    usage
+    exit 1
+fi
+
+# GRAPH_CONF is exported to make it available to executed scripts:
+export GRAPH_CONF="${CONFIG_FILE}"
+
+NAVIGATION_ARG=
+[ "${NAVIGATION}" -eq 1 ] && NAVIGATION_ARG="-r"
+
+PATH_FILE_ARG=
+[ "${PATH_FILE}" ] && PATH_FILE_ARG="-p ${PATH_FILE}"
+
+exec "${RUN_GRAPH_SCRIPT}" ${NAVIGATION_ARG} \
+                           ${PATH_FILE_ARG} \
+                           "${GRAPH_FILE}"

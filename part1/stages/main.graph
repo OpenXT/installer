@@ -1,0 +1,120 @@
+Start,                        Continue:Initialise-state
+ErrorHandler,                 Continue:Fail
+
+Initialise-state,             Continue:Get-answerfile | Abort:Unexpected-failure
+Get-answerfile,               Continue:Pre-install-hook | Abort:Fail
+Pre-install-hook,             Continue:Welcome | Abort:Fail
+
+Welcome,                      Continue:EULA | Abort:Fail
+EULA,                         Continue:Check-host-capabilities | Decline:EULA-declined | Abort:Fail
+EULA-declined,                Abort:Fail
+Check-host-capabilities,      Continue:Check-GPU | Abort:Fail
+Check-GPU,                    Continue:Configure-language | Abort:Fail
+Configure-language,           Continue:Configure-keyboard | Abort:Fail
+Configure-keyboard,           Continue:Configure-repo-cert | Abort:Fail
+Configure-repo-cert,          Continue:Detect-repo | Abort:Fail
+Detect-repo,                  Continue:Optional-extra-disks | Abort:Fail
+
+Optional-extra-disks,         ExtraDisks:Choose-extra-source | NoMoreDisks:Post-all-extras-hook
+Choose-extra-source,          Optical:Extra-from-optical-media | Network:Ensure-network-up{extra} | BootMedia:X-check-initrd-data | Abort:Fail
+
+Extra-from-optical-media,     Request:Request-optical-media{ins}
+Request-optical-media{ins},   Continue:X-locate-optical-media | Abort:Locate-optical-failed{ins}
+X-locate-optical-media,       Continue:X-mount-optical-media{ins} | LocateFail:Locate-optical-failed{ins} | Abort:Fail
+Locate-optical-failed{ins},   Retry:Choose-extra-source | Abort:Fail
+X-mount-optical-media{ins},   Continue:X-verify-optical-media | MountFail:Bad-media{extra} | Abort:Fail
+X-verify-optical-media,       Continue:X-record-optical-pack-data | VerifyFail:Bad-media{extra} | Abort:Fail
+X-record-optical-pack-data,   Continue:Activate-drivers | Abort:Unexpected-failure
+
+Ensure-network-up{extra},     BringUpNet:Select-NIC{extra} | NetIsUp:X-configure-network-repo | Abort:Fail
+Select-NIC{extra},            Continue:DHCP-or-static{extra} | Abort:Fail
+DHCP-or-static{extra},        DHCP:Configure-DHCP{extra} | Static:Configure-static-IP{extra} | Abort:Fail
+Configure-DHCP{extra},        Continue:X-configure-network-repo | NoAddress:DHCP-or-static{extra} | Abort:Fail
+Configure-static-IP{extra},   Continue:X-configure-network-repo | Abort:Fail
+
+X-configure-network-repo,     Continue:X-download-driver-files | Abort:Fail
+X-download-driver-files,      Continue:X-record-network-pack-data | BadTransfer:X-configure-network-repo | Abort:Fail
+X-record-network-pack-data,   Continue:Activate-drivers | Abort:Unexpected-failure
+
+X-check-initrd-data,          Continue:X-record-initrd-pack-data | CheckFail:Bad-media{extra} | Abort:Fail
+X-record-initrd-pack-data,    Continue:Activate-drivers | Abort:Unexpected-failure
+
+Bad-media{extra},             Retry:Choose-extra-source | Abort:Fail
+
+Activate-drivers,             Continue:Eject-disk{inspect-sp} | Abort:Fail
+Eject-disk{inspect-sp},       Continue:Post-extra-hook | Abort:Fail
+Post-extra-hook,              Continue:Optional-extra-disks | Abort:Fail
+
+Post-all-extras-hook,         Continue:Previous-barrier{first} | Abort:Fail
+Previous-barrier{first},      Continue:Choose-install-type | Abort:Fail
+
+Choose-install-type,          Optical:Install-from-optical-media | Network:Ensure-network-up{main} | BootMedia:Check-initrd-data | Usb:Mount-usb-media | HardDisk:Configure-hard-disk-repo | Iscsi:Ensure-network-up{iscsi} | Abort:Fail
+
+Mount-usb-media,              Continue:Extract-control-package | MountFail:Bad-media{install} | Abort:Fail
+
+Install-from-optical-media,   Request:Request-optical-media{base} | Locate:Locate-optical-media
+Request-optical-media{base},  Continue:Locate-optical-media | Abort:Locate-optical-failed{base}
+Locate-optical-media,         Continue:Mount-optical-media | LocateFail:Locate-optical-failed{base} | Abort:Fail
+Locate-optical-failed{base},  Retry:Choose-install-type | Abort:Fail
+Mount-optical-media,          Continue:Verify-optical-media | MountFail:Bad-media{install} | Abort:Fail
+Verify-optical-media,         Continue:Extract-control-package | VerifyFail:Fail | Abort:Fail
+
+Ensure-network-up{main},      BringUpNet:Select-NIC{main} | NetIsUp:Configure-network-repo | Abort:Fail
+Select-NIC{main},             Continue:DHCP-or-static{main} | Abort:Fail
+DHCP-or-static{main},         DHCP:Configure-DHCP{main} | Static:Configure-static-IP{main} | Abort:Fail
+Configure-DHCP{main},         Continue:Configure-network-repo | NoAddress:DHCP-or-static{main} | Abort:Fail
+Configure-static-IP{main},    Continue:Configure-network-repo | Abort:Fail
+
+Configure-network-repo,       Continue:Download-install-files | Abort:Fail
+Download-install-files,       Continue:Extract-control-package | BadTransfer:Configure-network-repo | Abort:Fail
+
+Configure-hard-disk-repo,     Continue:Copy-install-files | Abort:Fail
+Copy-install-files,           Continue:Extract-control-package | CopyFail:Bad-media{install} | Abort:Fail
+
+Check-initrd-data,            Continue:Extract-control-package | CheckFail:Bad-media{install} | Abort:Fail
+
+Ensure-network-up{iscsi},     BringUpNet:Select-NIC{iscsi} | NetIsUp:Iscsi-confirm-repo | Abort:Fail
+Select-NIC{iscsi},            Continue:DHCP-or-static{iscsi} | Abort:Fail
+DHCP-or-static{iscsi},        DHCP:Configure-DHCP{iscsi} | Static:Configure-static-IP{iscsi} | Abort:Fail
+Configure-DHCP{iscsi},        Continue:Iscsi-confirm-repo | NoAddress:DHCP-or-static{iscsi} | Abort:Fail
+Configure-static-IP{iscsi},   Continue:Iscsi-confirm-repo | Abort:Fail
+
+Iscsi-confirm-repo,           Continue:Iscsi-configure-repo | Abort:Fail
+Iscsi-configure-repo,         Continue:Iscsi-copy-install-files | Abort:Fail
+Iscsi-copy-install-files,     Continue:Extract-control-package | CopyFail:Bad-media{install} | Abort:Fail
+
+Bad-media{install},           Retry:Choose-install-type | Abort:Fail
+
+Extract-control-package,      Continue:Install-main | Abort:Unexpected-failure
+Install-main,                 Continue:Apply-extra-disks | Abort:Fail | UnexpectedAbort:Unexpected-failure
+
+Apply-extra-disks,            ExtraDisks:Request-disk | NoMoreDisks:Post-install-extras-hook | Abort:Fail
+
+Request-disk,                 Continue:Y-locate-optical-media | Abort:Locate-optical-failed{post}
+Y-locate-optical-media,       Continue:X-mount-optical-media{post} | LocateFail:Locate-optical-failed{post} | Abort:Fail
+Locate-optical-failed{post},  Retry:Request-disk | Abort:Fail
+X-mount-optical-media{post},  Continue:Y-verify-optical-media | MountFail:Bad-media{disk} | Abort:Fail
+Y-verify-optical-media,       Continue:Install-extra | VerifyFail:Bad-media{disk} | Abort:Fail
+
+Install-extra,                Continue:Eject-disk{apply-sp} | Abort:Fail | UnexpectedAbort:Unexpected-failure
+Eject-disk{apply-sp},         Continue:Apply-extra-disks
+
+Bad-media{disk},              Retry:Request-disk | Abort:Fail
+
+Post-install-extras-hook,     Continue:Previous-barrier{second} | Abort:Fail
+Previous-barrier{second},     Continue:Preserve-install-data | Abort:Fail
+Preserve-install-data,        Continue:Commit-main | Abort:Unexpected-failure | UnexpectedAbort:Unexpected-failure
+Commit-main,                  Continue:Commit-extra-disks | Abort:Unexpected-failure | UnexpectedAbort:Unexpected-failure
+
+Commit-extra-disks,           ExtraDisks:Commit-extra | NoMoreDisks:Succeed | Abort:Fail
+Commit-extra,                 Continue:Commit-extra-disks | Abort:Fail | UnexpectedAbort:Unexpected-failure
+
+Unexpected-failure,           Continue:Status-report
+Status-report,                Continue:Eject-cd | StatusServer:Status-server | Abort:Eject-cd
+Status-server,                Continue:Eject-cd | NoNetwork:Eject-cd | Abort:Eject-cd
+
+Fail,                         Continue:Eject-cd
+Succeed,                      Continue:Eject-cd
+
+Eject-cd,                     Continue:Reboot
+Reboot,                       ReInit:Initialise-state | Continue:End

@@ -1,0 +1,169 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+apply_xc_driver_packages()
+{
+    local PACKAGES_DIR="$1"
+
+    apply_drivers()
+    {
+        local PACKAGE_FILE="${PACKAGES_DIR}/${FILENAME}"
+
+        case "${COMPONENT}" in
+            driverexec)
+                activate_driver_package "${PACKAGE_TYPE}" \
+                    "${PACKAGE_FILE}" "${DESTINATION}"
+                if [ "$?" -ne 0 ] ; then
+                    echo "ERROR: failure activating driver: ${FILENAME}.">&2
+                    return 1
+                fi
+                ;;
+            *)
+                true # no-op
+                ;;
+        esac
+    }
+
+    # Iterate over the install packages, looking for a handler for each one:
+    iterate_over_packages "${PACKAGES_DIR}" apply_drivers || return "$?"
+
+    return 0
+}
+
+activate_driver_package()
+{
+    local PACKAGE_TYPE="$1"
+    local PACKAGE_FILE="$2"
+    local DESTINATION="$3"
+
+    echo -e >&2 "Activating driver file" \
+                "\nType: ${PACKAGE_TYPE}" \
+                "\nFrom: ${PACKAGE_FILE}" \
+                "\nTo: ${DESTINATION}\n"
+
+    local RESULT
+
+    case "${PACKAGE_TYPE}" in
+        tarbz2)
+            local DIR="$(mktemp -t -d)"
+            bunzip2 -q -c "${PACKAGE_FILE}" | tar -x -f - -C "${DIR}"
+            if [ ! -x "${DIR}/init" ] ; then
+                echo "Failure to unpack ${PACKAGE_FILE}">&2
+                RESULT=1
+            else
+                chmod 755 "${DIR}/init"
+                "${DIR}/init" "${DIR}" "${DESTINATION}"
+                RESULT="$?"
+            fi
+            rm -rf "${DIR}"
+        ;;
+        bz2exe)
+            local EXE="$(mktemp -t)"
+            bunzip2 "${PACKAGE_FILE}" -q -c >"${EXE}"
+            chmod 755 "${EXE}"
+            "${EXE}" "${DESTINATION}"
+            RESULT="$?"
+            rm -f "${EXE}"
+        ;;
+        exe)
+            local EXE="$(mktemp -t)"
+            # Copy in order to ensure executable permission is set
+            cp -f "${PACKAGE_FILE}" "${EXE}"
+            chmod 755 "${EXE}"
+            "${EXE}" "${DESTINATION}"
+            RESULT="$?"
+            rm -f "${EXE}"
+        ;;
+        ash)
+            # Execute in place
+            ash "${PACKAGE_FILE}" "${DESTINATION}"
+            RESULT="$?"
+            rm -f "${EXE}"
+        ;;
+        *)
+            echo "ERROR: Unknown exec package type: ${PACKAGE_TYPE}">&2
+            RESULT=1
+        ;;
+    esac
+
+    return ${RESULT}
+}
+
+extract_control_package()
+{
+    local PACKAGE_TYPE="$1"
+    local PACKAGE_FILE="$2"
+    local CONTROL_DIR="$3"
+
+    echo -e >&2 "Extracting control package" \
+                "\nType: ${PACKAGE_TYPE}" \
+                "\nFrom: ${PACKAGE_FILE}"
+
+    case "${PACKAGE_TYPE}" in
+        tarbz2)
+            bunzip2 -q -c "${PACKAGE_FILE}" | tar -x -f - -C "${CONTROL_DIR}"
+
+            if [ ! -x "${CONTROL_DIR}/${SUBGRAPH_SCRIPT}" ] ; then
+                echo "ERROR: Failure to extract ${PACKAGE_FILE}">&2
+                return 1
+            fi
+            ;;
+        *)
+            echo "ERROR: Unknown control package type: ${PACKAGE_TYPE}">&2
+            return 1
+            ;;
+    esac
+
+    return 0
+}
+
+extract_xc_control_package()
+{
+    local PACKAGES_DIR="$1"
+    local CONTROL_DIR="$2"
+
+    local COUNT=0
+
+    extract_control()
+    {
+        local PACKAGE_FILE="${PACKAGES_DIR}/${FILENAME}"
+
+        case "${COMPONENT}" in
+            control)
+                COUNT=$((COUNT + 1))
+
+                extract_control_package "${PACKAGE_TYPE}" \
+                    "${PACKAGE_FILE}" "${CONTROL_DIR}" || return "$?"
+                ;;
+            *)
+                true # no-op
+                ;;
+        esac
+    }
+
+    # Iterate over the install packages, looking for a handler for each one:
+    iterate_over_packages "${PACKAGES_DIR}" extract_control || return "$?"
+
+    if [ "${COUNT}" -ne 1 ] ; then
+        echo "ERROR: Expected 1 control package but found ${COUNT}." >&2
+        return 1
+    fi
+
+    return 0
+}

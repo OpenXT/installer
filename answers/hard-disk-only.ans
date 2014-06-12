@@ -1,0 +1,10 @@
+<interactive>true</interactive>
+<source type="harddisk"></source>
+<license-key></license-key>
+<skipinsertcd></skipinsertcd>
+<skip-extra-supplemental-packs></skip-extra-supplemental-packs>
+<quick-option>
+<partition-mode></partition-mode>
+<enable-ssh>false</enable-ssh>
+<skipready></skipready>
+</quick-option>

@@ -1,0 +1,146 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+select_nic()
+{
+    rm -f ${NETWORK_NIC_CONF}
+
+    NIC_LIST="$(find_physical_nics)"
+    NIC_COUNT="$?"
+
+    case ${NIC_COUNT} in
+
+    0)
+        if ! interactive ; then
+            echo "ERROR: Network install selected but no NICs found.">&2
+        else
+            dialog --yes-label Previous --no-label Abort --yesno "No network interfaces found." 8 40
+            OPT=$?
+            [ "$OPT" != "0" ]   || return ${Previous}
+            [ "$OPT" != "255" ] || return ${Previous}
+        fi
+        return ${Abort}
+        ;;
+
+    1)
+        # Auto select this NIC. If there's only one, skip use of the answerfile.
+        NIC="${NIC_LIST}"
+        echo "Detected a single network interface: ${NIC}">&2
+        write_nic_conf "${NIC}"
+        not_previous || return ${Previous}
+        return ${Continue}
+        ;;
+
+    *)
+        # Multiple NICs found.
+        unset NIC
+        if answerfile_specifies "network-interface" ; then
+            NIC=$(read_xml_tag "${ANSWERFILE}" "network-interface")
+        fi
+
+        if [ "${NIC}" ] ; then
+            FOUND_NIC=1
+            for CHECK in ${NIC_LIST} ; do
+                if [ "${CHECK}" = "${NIC}" ] ; then
+                    FOUND_NIC=0
+                    break
+                fi
+            done
+            if [ "${FOUND_NIC}" -eq 1 ] ; then
+                echo "ERROR: Could not find network interface \"${NIC}\" specified in answerfile <network-interface>: aborting.">&2
+                return ${Abort}
+            fi
+
+        else
+            if ! interactive ; then
+                echo "Warning: Multiple network interfaces found and answerfile is missing <network-interface>: use the one with link up.">&2
+
+                FOUND_NIC=0
+                for DEV in ${NIC_LIST} ; do
+                    if check_for_carrier ${DEV} ; then
+                        FOUND_NIC=1
+                        NIC=${DEV}
+                        break
+                    fi
+                done
+                [ ${FOUND_NIC} -eq 1 ] || return ${Abort}
+            else
+                ask_user_to_select_nic "${NIC_LIST}"
+                OPT=$?
+                [ ${OPT} -ne ${Continue} ] && return ${OPT}
+            fi
+        fi
+
+        # write out the NIC selected
+        write_nic_conf "${NIC}"
+        return ${Continue}
+        ;;
+    esac
+}
+
+check_for_carrier()
+{
+    DEV="$1"
+
+    [ "x$(cat /sys/class/net/${DEV}/carrier 2>/dev/null)" = "x1" ]
+}
+
+ask_user_to_select_nic()
+{
+    NIC_LIST="$1"
+    ARG=""
+    for DEV in ${NIC_LIST} ; do
+        if [ "x$(cat /sys/class/net/${DEV}/carrier 2>/dev/null)" = "x1" ] ; then
+            CARRIER="(link up)"
+        else
+            CARRIER="(link down)"
+        fi
+        MAC=$(cat /sys/class/net/${DEV}/address 2>/dev/null)
+        ARG="${ARG}${ARG:+ }${DEV} \"${CARRIER} ${MAC}\""
+    done
+    CAPTURE=$(mktemp -t)
+    echo ${ARG} | xargs dialog --ok-label Select --cancel-label Previous --menu "Select network interface for installation" 0 0 0 2>${CAPTURE}
+    OPT="$?"
+
+    if [ "${OPT}" != 0 ] ; then
+        rm -f ${CAPTURE}
+        [ "${OPT}" != 1 ]   || return ${Previous}
+        [ "${OPT}" != 123 ] || return ${Previous}
+        [ "${OPT}" != 124 ] || return ${Previous}
+        return ${Abort}
+    fi
+
+    # Read the selection
+    NIC=$(cat ${CAPTURE} 2>/dev/null)
+    rm -f ${CAPTURE}
+
+    return ${Continue}
+}
+
+write_nic_conf()
+{
+    NIC=$1
+    echo "NIC=\"${NIC}\"" >"${NETWORK_NIC_CONF}"
+}
+
+select_nic
+OPT=$?
+exit ${OPT}

@@ -1,0 +1,44 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. "${SCRIPT_DIR}/functions"
+. "${SCRIPT_DIR}/Functions/supp-packs"
+
+not_previous || exit ${Previous}
+
+if answerfile_specifies "skipinsertcd" ; then
+    exit ${Locate}
+fi
+
+# if no supplemental packs supplied,
+# and this is the first attempt to mount, exit ${Locate}
+if ! are_more_packs_pending_install ; then
+    if [ ! -e "${BAD_MOUNT_CONF}" ] ; then
+        exit ${Locate}
+    fi
+fi
+
+# Ask the user for the disk:
+cat <<EOF >${REQUEST_MEDIA_CONF}
+MEDIA_TITLE="the ${PRODUCT_BRAND} install CD"
+MEDIA_TITLE_HEIGHT="7"
+MEDIA_TITLE_WIDTH="45"
+EOF
+
+exit ${Request}

@@ -1,0 +1,54 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+not_previous || exit ${Previous}
+
+link_bootmedia_repo()
+{
+    # symlink so the installer can locate the install data
+    if [ -r "/${PACKAGES_DOT_MAIN}" ] ; then
+        mkdir -p $(dirname "${INSTALL_SOURCE_DIR}")
+        rm -rf "${INSTALL_SOURCE_DIR}/${PACKAGES_DOT_MAIN}"
+        ln -s "/${PACKAGES_DOT_MAIN}" "${INSTALL_SOURCE_DIR}/"
+    fi
+
+    for F in ${REPO_METADATA_FILENAMES} ; do
+        cp -f "${INSTALL_SOURCE_DIR}/${PACKAGES_DOT_MAIN}/${F}" "${INSTALL_DATA}/" || exit ${Abort}
+    done
+}
+
+mixedgauge "Verifying repository." 5
+
+# Basic validation on the repo:
+if ! sanity_check_repo "/${PACKAGES_DOT_MAIN}" ; then
+    ! interactive || dialog --ok-label Continue --msgbox "ERROR: Install media verification failed." 0 0
+    exit ${CheckFail}
+fi
+
+# Verify the repo:
+if ! validate_repo "/${PACKAGES_DOT_MAIN}" "${INTERACTIVE}" ; then
+    ! interactive || dialog --ok-label Continue --msgbox "ERROR: Install media verification failed." 0 0
+    exit ${CheckFail}
+fi
+
+# Make the repo available for the installer:
+link_bootmedia_repo
+
+exit ${Continue}

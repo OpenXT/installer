@@ -1,0 +1,82 @@
+#!/bin/ash
+#
+# Copyright (c) 2012 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+. ${OPTICAL_CONF}
+
+# Basic mandatory validation on the repo:
+if ! sanity_check_repo "${OPTICAL_MOUNT}/${PACKAGES_DOT_EXTRA}" ; then
+    ! interactive || dialog --ok-label Continue --msgbox "\n ERROR: CD-ROM verification failed." 7 40
+    exit ${VerifyFail}
+fi
+
+# Check that this is not a pack that we have already processed:
+for PACKDIR in $(ls -d ${EXTRA_DATA_SEQUENCE}/* 2>/dev/null) ; do
+    for FILE in ${REPO_METADATA_FILENAMES} ; do
+        if [ -e "${PACKDIR}/${FILE}" ] &&
+           diff -q "${PACKDIR}/${FILE}" \
+                   "${OPTICAL_MOUNT}/${PACKAGES_DOT_EXTRA}/${FILE}" >/dev/null
+        then
+            ! interactive || dialog --ok-label Continue --msgbox "\n ERROR: This is a duplicate repository." 7 44
+            exit ${VerifyFail}
+        fi
+    done
+done
+
+
+# Skip verification:
+if [ "${OPTICAL_VERIFY}" = "no" ] ; then
+    not_previous || exit ${Previous}
+
+    # Make the repo available for the installer:
+    link_optical_repo "${PACKAGES_DOT_EXTRA}" "extra"
+
+    exit ${Continue}
+fi
+
+# If interactive, ask:
+if [ "${OPTICAL_VERIFY}" = "ask_or_yes" ] && interactive ; then
+    dialog --yes-label Verify --no-label Skip --yesno "\n     Verify the CD-ROM media?" 7 40
+    OPT=$?
+    if [ "$OPT" = "1" ] ; then # Skip was selected
+        # Make the repo available for the installer:
+        link_optical_repo "${PACKAGES_DOT_EXTRA}" "extra"
+        exit ${Continue}
+    fi
+    [ "$OPT" != "255" ] || exit ${Previous}
+fi
+
+mixedgauge "Verifying repository." 5
+
+# Verify the repo:
+if ! validate_repo "${OPTICAL_MOUNT}/${PACKAGES_DOT_EXTRA}" "${INTERACTIVE}" ; then
+    ! interactive || dialog --ok-label Continue --msgbox "\n ERROR: CD-ROM verification failed." 7 40
+    echo "Verification of the Supplemental Pack failed">&2
+    exit ${VerifyFail}
+fi
+
+if [ "${OPTICAL_VERIFY}" != "ask_or_yes" ] || ! interactive ; then
+    not_previous || exit ${Previous}
+fi
+
+# Make the repo available for the installer:
+link_optical_repo "${PACKAGES_DOT_EXTRA}" "extra"
+
+exit ${Continue}

@@ -1,0 +1,59 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+not_previous || exit ${Previous}
+
+# check_gfx:
+# Returns true if GPU recognised as OK:
+
+check_gfx()
+{
+    for i in /sys/bus/pci/devices/*; do
+        if [ -d $i ]; then
+            if grep -q '3....$' $i/class; then
+                vendor=$(cat $i/vendor)
+                case $vendor in
+                    "0x8086"|"0x1002") return 0;;
+                esac
+            fi
+        fi
+    done
+    
+    echo "ERROR: GPU not recognised.">&2
+    return 1
+}
+
+GPU_OK=0
+check_gfx || GPU_OK=1
+
+interactive || exit ${Continue}
+
+if [ ${GPU_OK} -ne 0 ] ; then
+    dialog --colors --yes-label "Ignore" --no-label "Abort" --yesno \
+"   \ZbERROR: Unrecognised Graphics Device\ZB
+
+   System may be incompatible with ${PRODUCT_BRAND}!" 8 55
+    OPT=$?
+    [ "${OPT}" != 1 ] || exit ${Abort}
+    [ "${OPT}" != 255 ] || exit ${Previous}
+    echo "Ignoring unrecognised graphics device.">&2
+fi
+
+exit ${Continue}

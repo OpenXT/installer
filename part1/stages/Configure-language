@@ -1,0 +1,146 @@
+#!/bin/ash
+#
+# Copyright (c) 2012 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+# FIXME - When the host installer is translated into different languages,
+# this stage should be moved earlier in the sequence.
+
+. ${SCRIPT_DIR}/functions
+
+DEFAULT_LANGUAGE="en-us"
+
+choose_language()
+{
+    local CAPTURE=$(mktemp -t)
+
+    local ARG=
+    local LANGUAGE_COUNT=0
+
+    local LINE
+    while read LINE ; do
+        local VALID_LANGUAGE_NAME=$(echo "${LINE}" | cut -f3 -d:)
+
+        ARG="${ARG} \"${VALID_LANGUAGE_NAME}\" \"\""
+        LANGUAGE_COUNT=$((LANGUAGE_COUNT + 1))
+    done < "${LANGUAGES_LIST}"
+
+    if [ "${LANGUAGE_COUNT}" -lt 2 ] ; then
+        not_previous || exit ${Previous}
+
+        LANGUAGE="${DEFAULT_LANGUAGE}"
+        return 0
+    fi
+
+    echo ${ARG} |
+        xargs dialog --ok-label Select \
+                     --no-cancel \
+                     --default-item ${DEFAULT_LANGUAGE} \
+                     --menu "Select language" 7 40 0 2>${CAPTURE}
+    OPT=$?
+
+    if [ ${OPT} == 0 ] ; then
+        local LANGUAGE_NAME=$(cat ${CAPTURE} 2>/dev/null)
+        LANGUAGE=$(get_language_by_name "${LANGUAGE_NAME}")
+        rm -f ${CAPTURE}
+        return 0
+    fi
+
+    rm -f ${CAPTURE}
+    [ ${OPT} == 1 ]   && exit ${Abort}
+    [ ${OPT} == 123 ] && exit ${Previous}
+    [ ${OPT} == 124 ] && exit ${Previous}
+    exit ${Abort}
+}
+
+get_language_by_name()
+{
+    local LANGUAGE_NAME="$1"
+
+    while read LINE ; do
+        local VALID_LANGUAGE=$(echo "${LINE}" | cut -f1 -d:)
+        local VALID_LANGUAGE_NAME=$(echo "${LINE}" | cut -f3 -d:)
+
+        if [ "${LANGUAGE_NAME}" = "${VALID_LANGUAGE_NAME}" ] ; then
+            echo "${VALID_LANGUAGE}"
+            return 0
+        fi
+    done < "${LANGUAGES_LIST}"
+
+    return 1
+}
+
+check_language()
+{
+    local LANGUAGE_TO_CHECK="$1"
+
+    while read LINE ; do
+        local VALID_LANGUAGE=$(echo "${LINE}" | cut -f1 -d:)
+
+        if [ "${LANGUAGE_TO_CHECK}" = "${VALID_LANGUAGE}" ] ; then
+            return 0
+        fi
+    done < "${LANGUAGES_LIST}"
+
+    return 1
+}
+
+if answerfile_specifies "language" ; then
+
+    not_previous || exit ${Previous}
+
+    LANGUAGE=$(read_xml_tag "${ANSWERFILE}" "language")
+    DEFER_LANGUAGE=$(read_xml_attr "${ANSWERFILE}" "language" "defer")
+
+    if [ "${DEFER_LANGUAGE}" != "true" ] ; then
+        DEFER_LANGUAGE="false"
+    fi
+
+    if [ "${LANGUAGE}" ] ; then
+        if ! check_language "${LANGUAGE}" ; then
+            echo "Answerfile specifies invalid language layout '${LANGUAGE}':" \
+                 "defaulting to '${DEFAULT_LANGUAGE}'." >&2
+            LANGUAGE=${DEFAULT_LANGUAGE}
+        fi
+    else
+        if [ "${DEFER_LANGUAGE}" = "false" ] ; then
+            echo "Answerfile does not specify language layout:" \
+                 "assuming '${DEFAULT_LANGUAGE}'." >&2
+        fi
+        LANGUAGE=${DEFAULT_LANGUAGE}
+    fi
+
+elif interactive ; then
+
+    choose_language
+    DEFER_LANGUAGE="false"
+
+else
+
+    not_previous || exit ${Previous}
+
+    echo "Answerfile does not specify language layout:" \
+         "assuming '${DEFAULT_LANGUAGE}'." >&2
+    LANGUAGE=${DEFAULT_LANGUAGE}
+    DEFER_LANGUAGE="false"
+
+fi
+
+echo "LANGUAGE='${LANGUAGE}'" > "${LANGUAGE_CONF}"
+echo "DEFER_LANGUAGE='${DEFER_LANGUAGE}'" >> "${LANGUAGE_CONF}"
+
+exit ${Continue}

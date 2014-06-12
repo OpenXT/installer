@@ -1,0 +1,192 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+not_previous || exit ${Previous}
+
+if [ ! -r ${NETWORK_REPO_CONF} ] ; then
+    echo "Could not read network config from ${NETWORK_REPO_CONF} : aborting.">&2
+    exit ${Abort}
+fi
+
+. ${NETWORK_REPO_CONF}
+# defines: NETWORK_REPO, NETWORK_PROTOCOL
+
+#-----------------------------------------------------------
+# FIXME: detect "--previous" and offer to skip the download if already found.
+
+# FIXME: if interactive, visual feedback on download progress is required.
+#        The size of the download is known once the manifest has been obtained.
+
+# FIXME: support http/ftp proxy configuration.
+
+# FIXME: distinguish Abort from BadConfig exit conditions.
+
+#-----------------------------------------------------------
+wget_file()
+{
+    MAIN_URL_IN="$1"
+    FILE="$2"
+
+    # Trim any lingering '/' from the URL:
+    MAIN_URL="${MAIN_URL_IN%/}"
+
+    DOWNLOAD_URL="${MAIN_URL}/${FILE}"
+    DOWNLOAD_FILE="${INSTALL_DOWNLOAD_DIR}/${FILE}"
+    DOWNLOAD_DIR="$(dirname "${DOWNLOAD_FILE}")"
+    mkdir -p "${DOWNLOAD_DIR}"
+    if ! wget -U "${INSTALLER_USER_AGENT}" -q -P "${DOWNLOAD_DIR}" "${DOWNLOAD_URL}" ||
+       [ ! -r "${DOWNLOAD_FILE}" ] ; then
+        rm -f "${DOWNLOAD_FILE}"
+        echo "Failed to download ${FILE} from ${MAIN_URL}.">&2
+        return 1
+    fi
+    return 0
+}
+
+#-----------------------------------------------------------
+do_version_check()
+{
+    REPO_FILE="$1"
+    #FIXME
+    return 0
+}
+
+#-----------------------------------------------------------
+do_wget_transfer()
+{
+    BASE_URL="$1"
+
+    PERCENT="2"
+    mixedgauge "Downloading manifest..." "${PERCENT}"
+
+    local FILE
+    for FILE in ${REPO_METADATA_FILENAMES} ; do
+        wget_file "${BASE_URL}" "${PACKAGES_DOT_MAIN}/${FILE}" || return 1
+    done
+
+    sanity_check_repo "${INSTALL_DOWNLOAD_DIR}/${PACKAGES_DOT_MAIN}" || return 1
+
+    do_version_check "${INSTALL_DOWNLOAD_DIR}/${PACKAGES_DOT_MAIN}/${REPOSITORY_FILENAME}" || return 1
+
+    # Parse the package data and download packages:
+    PKGDATA_FILE="${INSTALL_DOWNLOAD_DIR}/${PACKAGES_DOT_MAIN}/${PKGDATA_FILENAME}"
+    PKG_LIST="$(package_list ${PKGDATA_FILE})"
+    PERCENT="10"
+
+    # Count the number of files to determine the percentage complete
+    # per file.
+    FCOUNT=0
+    for FILENAME in ${PKG_LIST} ; do
+        FCOUNT="$(( FCOUNT + 1 ))"
+    done
+    PERCENT_PER_FILE=90
+    [ "${FCOUNT}" = 0 ] || PERCENT_PER_FILE="$(( 90 / FCOUNT ))"
+
+    for FILENAME in ${PKG_LIST} ; do
+        mixedgauge "Downloading ${FILENAME}..." "${PERCENT}"
+        wget_file "${BASE_URL}" "${PACKAGES_DOT_MAIN}/${FILENAME}" || return 1
+        PERCENT="$(( PERCENT + PERCENT_PER_FILE ))"
+    done
+
+    validate_repo "${INSTALL_DOWNLOAD_DIR}/${PACKAGES_DOT_MAIN}" "${INTERACTIVE}" || return 1
+
+    return 0
+}
+
+#-----------------------------------------------------------
+do_file_copy()
+{
+    SRC_DIR="$1"
+    SRC_FILENAME="$2"
+    DST_DIR="$3"
+    if ! cp "${SRC_DIR}/${SRC_FILENAME}" "${DSR_DIR}/" ; then
+        echo "Failed to copy ${SRC_FILENAME}: aborting.">&2
+        return 1
+    fi
+    return 0
+}
+
+do_nfs_transfer()
+{
+    INPUT_MOUNT_PATH="$1"
+    MOUNT_PATH="${INPUT_MOUNT_PATH}/${PACKAGES_DOT_MAIN}"
+
+    if ! do_mount -t nfs -o ro,nodev,noexec,nosuid "${MOUNT_PATH}" "${NFS_MOUNT}" ; then
+        echo "Failed to perform NFS mount of ${MOUNT_PATH}: aborting.">&2
+        exit ${Abort}
+    fi
+
+    local FILE
+    for FILE in ${REPO_METADATA_FILENAMES} ; do
+        do_file_copy "${NFS_MOUNT}" "${FILE}" "${INSTALL_DOWNLOAD_DIR}/" || return 1
+    done
+
+    sanity_check_repo "${NFS_MOUNT}/${PACKAGES_DOT_MAIN}" || return 1
+
+    do_version_check "${NFS_MOUNT}/${REPOSITORY_FILENAME}" || return 1
+
+    PKGDATA_FILE="${INSTALL_DOWNLOAD_DIR}/${PKGDATA_FILENAME}"
+    PKG_LIST="$(package_list ${PKGDATA_FILE})"
+    for FILENAME in ${PKG_LIST} ; do
+        do_file_copy "${NFS_MOUNT}" "${FILENAME}" "${INSTALL_DOWNLOAD_DIR}/" || return 1
+    done
+
+    validate_repo "${MOUNT_PATH}" "${INTERACTIVE}" || return 1
+
+    do_umount "${NFS_MOUNT}" #FIXME: error condition unmounting
+
+    return 0
+}
+
+#-----------------------------------------------------------
+exit_bad_transfer()
+{
+    if interactive ; then
+        hide_cursor
+        dialog --colors --ok-label "Continue" --msgbox \
+"   \ZbERROR: Download from repository failed\ZB
+
+   Please correct the repository address." 0 0
+
+    fi
+    exit ${BadTransfer}
+}
+
+#-----------------------------------------------------------
+empty_download_dir || exit ${Abort}
+
+case ${NETWORK_PROTOCOL} in
+http|ftp)
+    do_wget_transfer "${NETWORK_REPO}" || exit_bad_transfer
+    ;;
+nfs)
+    do_nfs_transfer "${NETWORK_REPO}" || exit_bad_transfer
+    ;;
+*)
+    echo "Unknown network protocol: ${NETWORK_PROTOCOL} : aborting.">&2
+    exit ${Abort}
+    ;;
+esac
+
+mixedgauge "Download complete." "100"
+
+link_install_to_downloads || exit ${Abort}
+
+exit ${Continue}

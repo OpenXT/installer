@@ -1,0 +1,142 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+# This assumes the tag is on a single line in the file.
+read_xml_attr()
+{
+    FILE="$1"
+    TAG="$2"
+    ELEMENT="$3"
+    RET=$(sed -ne 's,^.*<'"${TAG}"'\s\([^>]*\)>.*$,\1,p' <${FILE} | \
+          sed -ne 's/.*\(^\|\s\)'"${ELEMENT}"'="\([^"]\+\)".*$/\2/p')
+    [ ! -z "${RET}" ] || return 1
+    echo ${RET}
+}
+
+# This assumes the tag is on a single line in the file.
+read_xml_tag()
+{
+    FILE="$1"
+    TAG="$2"
+    sed -ne 's/^.*<'"${TAG}"'\(\s\+[^>]*\)*\s*>\([^<]*\)<\/'"${TAG}"'>.*$/\2/p' <${FILE}
+}
+
+has_xml_tag()
+{
+    FILE="$1"
+    TAG="$2"
+    egrep -q '^.*<'"${TAG}"'\s*[^>]*\s*>' <${FILE}
+}
+
+answerfile_specifies()
+{
+    TAG="$1"
+    FILE="$2"
+    [ ! -z ${FILE} ] || FILE="${ANSWERFILE}"
+    [ -r "${FILE}" ] || return 1
+    has_xml_tag "${FILE}" "${TAG}" || return 1
+    return 0
+}
+
+extract_file_from_tag()
+{
+    IN="$1"
+    TAG="$2"
+    OUT="$3"
+
+    if ! sed -ne '/<'"${TAG}"'\(\s[^>]*\)*>/,/<\/'"${TAG}"'>/ { s/<\/\?'"${TAG}"'\(\s[^>]*\)*>//g ; p }' <"${IN}" >"${OUT}" ; then
+        rm "${OUT}"
+        return 1
+    fi
+    return 0
+}
+
+extract_script_from_tag()
+{
+    extract_file_from_tag "$@" || return 1
+    chmod 755 "${OUT}"
+    return 0
+}
+
+answerfile_xml_loop_line()
+{
+    LOOP_FILE="$1"
+    INNER_TAG="$2"
+    INDEX="$3"
+
+    sed -n ':A;/\(\(.\|\n\)*<'"${INNER_TAG}"'\(\s[^>]*\)*>\)\{'"${INDEX}"'\}/b B;N;b A;:B;s/.*\n//gp;q' <"${LOOP_FILE}"
+}
+
+read_xml_loop_element()
+{
+    HANDLE="$1"
+    LOOP_FILE="$(echo "${HANDLE}" | cut -f1 -d'|')"
+    INNER_TAG="$(echo "${HANDLE}" | cut -f2 -d'|')"
+        INDEX="$(echo "${HANDLE}" | cut -f3 -d'|')"
+
+    answerfile_xml_loop_line "${LOOP_FILE}" "${INNER_TAG}" "${INDEX}" | sed -ne 's/^.*<'"${INNER_TAG}"'\(\s\+[^>]*\)*\s*>\([^<]*\)<\/'"${INNER_TAG}"'>.*$/\2/p'
+}
+
+read_xml_loop_attr()
+{
+    HANDLE="$1"
+    ATTR="$2"
+    LOOP_FILE="$(echo "${HANDLE}" | cut -f1 -d'|')"
+    INNER_TAG="$(echo "${HANDLE}" | cut -f2 -d'|')"
+        INDEX="$(echo "${HANDLE}" | cut -f3 -d'|')"
+
+    RET=$(answerfile_xml_loop_line "${LOOP_FILE}" "${INNER_TAG}" "${INDEX}" | \
+          sed -ne 's/.*\(^\|\s\)'"${ATTR}"'="\([^"]\+\)".*$/\2/p')
+    [ ! -z "${RET}" ] || return 1
+    echo "${RET}"
+}
+
+answerfile_xml_loop()
+{
+    OUTER_TAG="$1"
+    INNER_TAG="$2"
+    LOOP_FILE=$(mktemp -t)
+    extract_file_from_tag "${ANSWERFILE}" "${OUTER_TAG}" "${LOOP_FILE}"
+    [ $? = 0 ] || return 1
+
+    INDEX=1
+    if [ ! -z "$(answerfile_xml_loop_line "${LOOP_FILE}" "${INNER_TAG}" "${INDEX}")" ] ; then
+        # Handle is: <tmp file> | <tag> | <index>
+        echo "${LOOP_FILE}|${INNER_TAG}|${INDEX}"
+    else
+        rm -f "${LOOP_FILE}"
+    fi
+}
+
+answerfile_xml_loop_next()
+{
+    HANDLE="$1"
+    LOOP_FILE="$(echo "${HANDLE}" | cut -f1 -d'|')"
+    INNER_TAG="$(echo "${HANDLE}" | cut -f2 -d'|')"
+        INDEX="$(echo "${HANDLE}" | cut -f3 -d'|')"
+    INDEX=$(( INDEX + 1 ))
+
+    if [ ! -z "$(answerfile_xml_loop_line "${LOOP_FILE}" "${INNER_TAG}" "${INDEX}")" ] ; then
+        # Handle is: <tmp file> | index
+        echo "${LOOP_FILE}|${INNER_TAG}|${INDEX}"
+    else
+        rm -f "${LOOP_FILE}"
+    fi
+}
+

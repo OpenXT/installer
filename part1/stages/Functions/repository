@@ -1,0 +1,270 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+PACKAGES_DOT_MAIN="packages.main" 
+PACKAGES_DOT_EXTRA="packages.extra" 
+
+#-----------------------------------------------------------
+package_list()
+{
+    INPUT_FILE="$1"
+    sed 's/^\(\S\+\s\+\)\{5\}\(\S\+\)\s.*$/\2/' <"${INPUT_FILE}"
+}
+
+#-----------------------------------------------------------
+# FIXME: XC-6620: Calling scripts still assume this function is non-interactive.
+# Need to update their "previous" handling so that moving back to them doesn't
+# skip back past the invalid signature dialog.
+sanity_check_repo()
+{
+    local REPO_DIR="$1"
+    # REPO_DIR is typically ".../packages.main" or ".../packages.extra"
+
+    verify_repo_metadata "${REPO_DIR}" || return 1
+    check_repo_release "${REPO_DIR}" || return 1
+
+    return 0
+}
+
+#-----------------------------------------------------------
+verify_repo_metadata()
+{
+    local REPO_DIR="$1"
+
+    local FILE
+    for FILE in ${REPO_METADATA_FILENAMES} ; do
+        if [ ! -e "${REPO_DIR}/${FILE}" ] ; then
+            echo "ERROR: Missing file ${FILE}. Invalid repository.">&2
+            return 1
+        fi
+    done
+
+    verify-repo-metadata -d "${REPO_DIR}"
+    local RET=$?
+
+    if [ ${RET} -eq 1 ] ; then
+        if ignore_invalid_repo_signature ; then
+            echo "WARNING: Ignoring invalid repository signature.">&2
+        else
+            echo "ERROR: Repository signature invalid." >&2
+            # FIXME: XC-6620: Shouldn't exit directly from here.
+            exit ${Abort}
+        fi
+    elif [ ${RET} -ne 0 ] ; then
+        echo "ERROR: Repository metadata invalid.">&2
+        return 1
+    fi
+
+    return 0
+}
+
+#-----------------------------------------------------------
+ignore_invalid_repo_signature()
+{
+    if answerfile_specifies "ignore-invalid-repo-signature" ; then
+        local IGNORE_INVALID_SIGNATURE=$(read_xml_tag "${ANSWERFILE}" \
+                                         "ignore-invalid-repo-signature")
+
+        case "${IGNORE_INVALID_SIGNATURE}" in
+            "true")  return 0 ;;
+            "false") return 1 ;;
+        esac
+    fi
+
+    if interactive ; then
+        DIALOGRC="${DIALOG_WARN_RC}" \
+            dialog --colors \
+                   --defaultno \
+                   --yes-label "Install" \
+                   --no-label  "Abort" \
+                   --yesno "
+\ZbERROR: This repository has an invalid signature!\ZB
+
+A valid signature is necessary to ensure that the
+software is a genuine version of ${PRODUCT_BRAND}.
+
+An invalid signature means that the software is not
+trusted by this system.
+
+Please contact your support representative prior to
+installing this software or abort the installation.
+
+" \
+                   0 0
+        local OPT=$?
+        # FIXME: XC-6620: Shouldn't exit directly from here.
+        [ "${OPT}" = 255 ] && exit ${Previous}
+        [ "${OPT}" = 0 ]   && return 0
+    fi
+
+    return 1
+}
+
+#-----------------------------------------------------------
+check_repo_release()
+{
+    REPO_RELEASE="$(sed -ne 's/^release://p' <${REPO_DIR}/${REPOSITORY_FILENAME})"
+    if [ -z "${INSTALLER_RELEASE}" ] ; then
+        echo "Failed to read the release version of the host installer.">&2
+        # FIXME: make this enforcing: uncomment next line
+        # return 1
+    fi
+    if [ -z "${REPO_RELEASE}" ] ; then
+        echo "Failed to read the release version from the repository.">&2
+        # FIXME: make this enforcing: uncomment next line
+        # return 1
+    fi
+    if [ "${REPO_RELEASE}" != "${INSTALLER_RELEASE}" ] ; then
+        echo "Mismatch between the host installer release and the repository release.">&2
+        echo "Host installer: ${INSTALLER_RELEASE}">&2
+        echo "Repository: ${REPO_RELEASE}">&2
+        # FIXME: make this enforcing: uncomment next line
+        # return 1
+    fi
+
+    return 0
+}
+
+#-----------------------------------------------------------
+validate_repo()
+{
+    REPO_DIR="$1"
+    INTERACTIVE="$2"
+    # REPO_DIR is typically ".../packages.main" or ".../packages.extra"
+
+    PKGDATA_FILE="${REPO_DIR}/${PKGDATA_FILENAME}"
+    PKG_LIST="$(package_list ${PKGDATA_FILE})"
+    PERCENT=10
+
+    # Count the number of files to determine the percentage complete
+    # per file.
+    FCOUNT=0
+    for FILENAME in ${PKG_LIST} ; do
+        FCOUNT="$(( FCOUNT + 1 ))"
+    done
+    PERCENT_PER_FILE=90
+    [ "${FCOUNT}" = 0 ] || PERCENT_PER_FILE="$(( 90 / FCOUNT ))"
+
+    # Validate the integrity of the downloaded packages, size and checksum:
+    for FILENAME in ${PKG_LIST} ; do
+        MANIFEST_CHECKSUM="$(sed -ne 's/^\(\S\+\s\+\)\{2\}\(\S\+\)\s\+\(\S\+\s\+\)\{2\}\('${FILENAME}'\)\s.*$/\2/p' <${PKGDATA_FILE})"
+        MANIFEST_SIZE="$(sed -ne 's/^\S\+\s\+\(\S\+\)\s\+\(\S\+\s\+\)\{3\}\('${FILENAME}'\)\s.*$/\1/p' <${PKGDATA_FILE})"
+        FILE="${REPO_DIR}/${FILENAME}"
+
+        mixedgauge "Verifying: ${FILENAME}" "${PERCENT}"
+        FILE_CHECKSUM="$(sha256sum ${FILE} | cut -f1 -d' ')"
+        PERCENT="$(( PERCENT + PERCENT_PER_FILE ))"
+
+        FILE_SIZE="$(ls -l ${FILE} | sed -ne 's/^\(\S\+\s\+\)\{4\}\(\S\+\)\s\+.*$/\2/p')"
+
+        if [ "x${MANIFEST_CHECKSUM}" != "x${FILE_CHECKSUM}" ] ||
+           [ "x${MANIFEST_SIZE}" != "x${FILE_SIZE}" ] ; then
+            echo "File ${FILENAME} does not match manifest, possibly corrupt: aborting.">&2
+            return 1
+        fi
+    done
+    if [ ${INTERACTIVE} -eq 0 ] ; then
+        mixedgauge "Verifying repository: Success" 100
+        sleep 1 # Makes this success message visible, without interrupting flow
+    fi
+    return 0
+}
+
+#-----------------------------------------------------------
+empty_download_dir()
+{
+    rm -rf "${INSTALL_DOWNLOAD_DIR}"
+    if [ -e "${INSTALL_DOWNLOAD_DIR}" ] ; then
+        echo "Could not empty download directory ${INSTALL_DOWNLOAD_DIR}:" \
+             "aborting.">&2
+        return 1
+    fi
+
+    mkdir -p "${INSTALL_DOWNLOAD_DIR}"
+    if [ ! -d "${INSTALL_DOWNLOAD_DIR}" ] ; then
+        echo "Could not create download directory ${INSTALL_DOWNLOAD_DIR}:" \
+             "aborting.">&2
+        return 1
+    fi
+
+    return 0
+}
+
+#-----------------------------------------------------------
+link_optical_repo()
+{
+    PACKAGES_DIR="$1"
+    REPO_TYPE="$2"
+
+    # symlink so the installer can locate the install data
+    if [ -r "${OPTICAL_MOUNT}/${PACKAGES_DIR}" ] ; then
+        mkdir -p $(dirname "${INSTALL_SOURCE_DIR}")
+        rm -rf "${INSTALL_SOURCE_DIR}/${PACKAGES_DIR}"
+        ln -s "${OPTICAL_MOUNT}/${PACKAGES_DIR}" "${INSTALL_SOURCE_DIR}/"
+    fi
+
+    if [ "${REPO_TYPE}" = "main" ] ; then
+        for F in ${REPO_METADATA_FILENAMES} ; do
+            cp -f "${INSTALL_SOURCE_DIR}/${PACKAGES_DIR}/${F}" "${INSTALL_DATA}/" || exit ${Abort}
+        done
+    fi
+}
+
+#-----------------------------------------------------------
+link_install_to_downloads()
+{
+    if [ -e "${INSTALL_SOURCE_DIR}" ] ; then
+        rm -rf "${INSTALL_SOURCE_DIR}"
+        if [ -e "${INSTALL_SOURCE_DIR}" ] ; then
+            echo "Failed to remove ${INSTALL_SOURCE_DIR} to refresh from"
+                 "download: aborting">&2
+            return 1
+        fi
+    fi
+
+    mkdir -p "${INSTALL_SOURCE_DIR}"
+
+    if ! ln -s "${INSTALL_DOWNLOAD_DIR}/${PACKAGES_DOT_MAIN}" \
+               "${INSTALL_SOURCE_DIR}/" ; then
+        echo "Failed to symlink after download: aborting.">&2
+        return 1
+    fi
+
+    local F
+    for F in ${REPO_METADATA_FILENAMES} ; do
+        cp -f "${INSTALL_SOURCE_DIR}/${PACKAGES_DOT_MAIN}/${F}" \
+              "${INSTALL_DATA}/" || return 1
+    done
+
+    return 0
+}
+
+#-----------------------------------------------------------
+bootfs_includes_packages()
+{
+    [ ! -d /packages.main ] || return 0
+    return 1
+}
+
+#-----------------------------------------------------------
+bootfs_includes_extras()
+{
+    [ ! -d /supplemental-packs ] || return 0
+    return 1
+}

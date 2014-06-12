@@ -1,0 +1,69 @@
+#!/bin/ash
+#
+# Copyright (c) 2014 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+TITLE="${PRODUCT_BRAND} ${INSTALLER_VERSION} (Build ${INSTALLER_BUILD_NUMBER})"
+
+rm -f "${DIALOG_PID_FILE}"
+export DIALOG_FREEZE=1
+
+if ! interactive ; then
+    dialog --backtitle "${TITLE}" --infobox "\nInstalling ${PRODUCT_BRAND}...\n\nPress Alt-F2 to view the installer log." 7 43 &
+    echo $! > "${DIALOG_PID_FILE}"
+
+    cp -f "${FULL_ANSWERFILE}" "${ANSWERFILE}"
+    exit ${Continue}
+fi
+
+# The '<quick-option>' tag in the answerfile allows
+# for two different interactive install sequences to be presented.
+#
+# If the user selects the "Quick install", then the items specified
+# in the <quick-option> section of the answerfile are acted upon.
+# If "Advanced install" is selected, then they're discarded and
+# the user is queried for the data as if the answerfile omitted it.
+
+QUICK="quick-option"
+
+if answerfile_specifies "${QUICK}" "${FULL_ANSWERFILE}" ; then
+    dialog --backtitle "${TITLE}" --yes-label "Quick install" --no-label "Advanced install" --yesno "\n   Welcome to the ${PRODUCT_BRAND} installer" 7 46
+    OPT="$?"
+
+    if [ "${OPT}" = 1 ] ; then
+        echo "Installing using Advanced option.">&2
+        # delete everything between <quick-option> and </quick-option>
+        sed -e '/<'"${QUICK}"'>/,/\/'"${QUICK}"'>/d' <"${FULL_ANSWERFILE}" >"${ANSWERFILE}"
+        exit ${Continue}
+    fi
+    if [ "${OPT}" = 0 ] ; then
+        echo "Installing using Quick option.">&2
+        cp "${FULL_ANSWERFILE}" "${ANSWERFILE}"
+        # remove <quick-option> and </quick-option> tags, and empty lines
+        sed -e 's/<'"${QUICK}"'>//g' -e 's/<\/'"${QUICK}"'>//g' -e '/^$/d' <"${FULL_ANSWERFILE}" >"${ANSWERFILE}"
+        exit ${Continue}
+    fi
+else
+    cp "${FULL_ANSWERFILE}" "${ANSWERFILE}"
+    do_cmd dialog --backtitle "${TITLE}" --ok-label Continue --msgbox "\nWelcome to the ${PRODUCT_BRAND} installer." 7 42
+    OPT="$?"
+    [ "${OPT}" != 0 ] || exit ${Continue}
+fi
+
+exit ${Abort}

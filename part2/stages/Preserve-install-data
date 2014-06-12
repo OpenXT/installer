@@ -1,0 +1,166 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${SCRIPT_DIR}/Functions/install-main
+
+. "${INSTALL_MODE_CONF}"
+# ^^^ defines INSTALL_MODE
+. "${REPOSITORY_CONF}"
+# ^^^ defines REPOSITORY_RELEASE
+
+MOUNT_DIR=${DOM0_MOUNT}/boot/system
+
+mount_dom0 "${ROOT_DEV}.new" || exit ${Abort}
+
+# The install and upgrade cases preserve data to different locations:
+case "${INSTALL_MODE}" in
+    fresh)
+        PRESERVED_DIR="${MOUNT_DIR}/${PRESERVED_INSTALL_DIR}"
+    ;;
+    upgrade)
+        BASE_DIR="${MOUNT_DIR}/${PRESERVED_UPGRADE_DIR}/${REPOSITORY_RELEASE}"
+        PRESERVED_DIR="${BASE_DIR}"
+        COUNT=0
+
+        while [ -e "${PRESERVED_DIR}" ] ; do
+            COUNT=$((COUNT + 1))
+            PRESERVED_DIR="${BASE_DIR}_${COUNT}"
+        done
+    ;;
+    *)
+        echo "Unknown install type: aborting.">&2
+        exit ${Abort}
+    ;;
+esac
+
+mkdir -p "${PRESERVED_DIR}" || exit ${Abort}
+
+# Preserve the installation/upgrade log:
+if [ "${INSTALLER_LOG}" ] ; then
+    PRESERVED_LOG_FILE="${PRESERVED_DIR}/installer.log.bz2"
+    bzip2 -c "${INSTALLER_LOG}" > "${PRESERVED_LOG_FILE}" || exit ${Abort}
+fi
+
+# Copy the installation/upgrade data to temporary data directories:
+TEMP_DATA_DIR=$(mktemp -t -d)
+TEMP_DATA_DIR_PART1="${TEMP_DATA_DIR}/part1"
+TEMP_DATA_DIR_PART2="${TEMP_DATA_DIR}/part2"
+
+if [ "${INSTALL_DATA_PART1}" ] ; then
+    cp -a "${INSTALL_DATA_PART1}" "${TEMP_DATA_DIR_PART1}" || exit ${Abort}
+fi
+
+cp -a "${INSTALL_DATA}" "${TEMP_DATA_DIR_PART2}" || exit ${Abort}
+
+# Install config files which will be used by dom0 in the correct place on the
+# target filesystem. Move sensitive config files out of the temporary data
+# directories created above so that they won't be included in the preserved
+# data archives.
+DOM0_CONFIG_DIR="${MOUNT_DIR}/${PRESERVED_DOM0_CONFIG_DIR}"
+
+mkdir -p "${DOM0_CONFIG_DIR}" || exit ${Abort}
+
+install_dom0_config()
+{
+    local FILE="$1"
+    local INSTALL_DATA_DIR_PARTN="$2"
+    local TEMP_DATA_DIR_PARTN="$3"
+    local SENSITIVE="$4"
+
+    local RELATIVE_FILE="${FILE#${INSTALL_DATA_DIR_PARTN}}"
+    local PRESERVED_FILE="${TEMP_DATA_DIR_PARTN}/${RELATIVE_FILE}"
+    local TARGET_FILE="${DOM0_CONFIG_DIR}/${RELATIVE_FILE}"
+    local NEED_TO_COMMIT=false
+
+    if [ -e "${PRESERVED_FILE}" ] ; then
+        if [ "${SENSITIVE}" = "true" ] ; then
+            do_cmd mv "${PRESERVED_FILE}" "${TARGET_FILE}.new" || exit ${Abort}
+        else
+            do_cmd cp "${PRESERVED_FILE}" "${TARGET_FILE}.new" || exit ${Abort}
+        fi
+
+        NEED_TO_COMMIT=true
+    fi
+
+    if [ "${NEED_TO_COMMIT}" = "true" ] ; then
+        ALL_DOM0_CONFIGS="${ALL_DOM0_CONFIGS}${TARGET_FILE} "
+    fi
+}
+
+ALL_DOM0_CONFIGS=
+
+for FILE in ${DOM0_CONFIGS_PART1} ; do
+    install_dom0_config "${FILE}" \
+                        "${INSTALL_DATA_PART1}" \
+                        "${TEMP_DATA_DIR_PART1}" \
+                        "false"
+done
+
+for FILE in ${DOM0_SENSITIVE_CONFIGS_PART1} ; do
+    install_dom0_config "${FILE}" \
+                        "${INSTALL_DATA_PART1}" \
+                        "${TEMP_DATA_DIR_PART1}" \
+                        "true"
+done
+
+for FILE in ${DOM0_CONFIGS} ; do
+    install_dom0_config "${FILE}" \
+                        "${INSTALL_DATA}" \
+                        "${TEMP_DATA_DIR_PART2}" \
+                        "false"
+done
+
+for FILE in ${DOM0_SENSITIVE_CONFIGS} ; do
+    install_dom0_config "${FILE}" \
+                        "${INSTALL_DATA}" \
+                        "${TEMP_DATA_DIR_PART2}" \
+                        "true"
+done
+
+# Archive installation/upgrade data from the temporary data directories to
+# the target filesystem:
+PRESERVED_DATA_FILE_PART1="${PRESERVED_DIR}/part1.tar.bz2"
+PRESERVED_DATA_FILE_PART2="${PRESERVED_DIR}/part2.tar.bz2"
+
+archive_preserved_data()
+{
+    local TEMP_DATA_DIR_PARTN="$1"
+    local PRESERVED_DATA_FILE_PARTN="$2"
+    local PARTN="$3"
+
+    if [ -e "${TEMP_DATA_DIR_PARTN}" ] ; then
+        do_cmd tar cjf "${PRESERVED_DATA_FILE_PARTN}" \
+                   -C "${TEMP_DATA_DIR}" "${PARTN}" || exit ${Abort}
+    fi
+}
+
+archive_preserved_data "${TEMP_DATA_DIR_PART1}" \
+                       "${PRESERVED_DATA_FILE_PART1}" "part1"
+
+archive_preserved_data "${TEMP_DATA_DIR_PART2}" \
+                       "${PRESERVED_DATA_FILE_PART2}" "part2"
+
+rm -rf "${TEMP_DATA_DIR}"
+
+cat <<EOF > ${PRESERVED_DATA_CONF}
+ALL_DOM0_CONFIGS='${ALL_DOM0_CONFIGS}'
+EOF
+
+exit ${Continue}

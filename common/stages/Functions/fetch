@@ -1,0 +1,159 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+fetch_file()
+{
+    local SOURCE_URL="$1"
+    local TARGET_FILE="$2"
+
+    local RET=0
+
+    case "${SOURCE_URL}" in
+	tftp://*)
+            fetch_file_tftp "${SOURCE_URL}" "${TARGET_FILE}" || RET=1
+            ;;
+
+        http://*|ftp://*)
+            fetch_file_http_or_ftp "${SOURCE_URL}" "${TARGET_FILE}" || RET=1
+            ;;
+
+        nfs://*)
+            fetch_file_nfs "${SOURCE_URL}" "${TARGET_FILE}" || RET=1
+            ;;
+
+        file://*|/*)
+            fetch_file_local "${SOURCE_URL}" "${TARGET_FILE}" || RET=1
+            ;;
+
+        dev://*)
+            fetch_file_dev "${SOURCE_URL}" "${TARGET_FILE}" || RET=1
+            ;;
+
+        https://*)
+            echo "ERROR: Downloading over HTTPS is not supported." >&2
+            return 1
+            ;;
+
+        *)
+            echo "ERROR: Invalid URL '${SOURCE_URL}'." >&2
+            return 1
+            ;;
+    esac
+
+    [ ${RET} = 0 ] || echo "ERROR: Failed to retrieve '${SOURCE_URL}'." >&2
+
+    return ${RET}
+}
+
+fetch_requires_network()
+{
+    local SOURCE_URL="$1"
+
+    case "${SOURCE_URL}" in
+        tftp://*|http://*|ftp://*|nfs://*) return 0 ;;
+    esac
+
+    return 1
+}
+
+#------------------------------------------------------------------------------
+
+fetch_file_tftp()
+{
+    local SOURCE_URL="$1"
+    local TARGET_FILE="$2"
+
+    local REMOTE_HOST=$(echo "${SOURCE_URL}" | \
+                        sed -ne 's,^tftp://\([^/]*\)/.*$,\1,p' )
+    local REMOTE_LEAF=$(echo "${SOURCE_URL}" | \
+                        sed -e 's,^tftp://[^/]*/,,g' )
+
+    [ -z "${REMOTE_HOST}" ] && REMOTE_HOST="dhcp"
+    local DHCP_PREFIX=$(cat /etc/dhcp-prefix)
+
+    do_cmd tftp -l "${TARGET_FILE}" \
+                -r "${DHCP_PREFIX}/${REMOTE_LEAF}" \
+                -g "${REMOTE_HOST}" || return 1
+
+    return 0
+}
+
+fetch_file_http_or_ftp()
+{
+    local SOURCE_URL="$1"
+    local TARGET_FILE="$2"
+
+    do_cmd wget -U "${INSTALLER_USER_AGENT}" -q -O "${TARGET_FILE}" \
+                "${SOURCE_URL}" || return 1
+
+    return 0
+}
+
+fetch_file_nfs()
+{
+    local SOURCE_URL="$1"
+    local TARGET_FILE="$2"
+
+    local REMOTE_HOST=$(echo "${SOURCE_URL}" | \
+                        sed 's,^nfs://\([^/]\+\)/.*$,\1,')
+    local REMOTE_DIR=$(echo "${SOURCE_URL}" | \
+                       sed 's,^nfs://[^/]\+\(/.*\)/[^/]\+$,\1,')
+    local REMOTE_FILE=$(echo "${SOURCE_URL}" | \
+                        sed 's,^nfs://.*/\([^/]\+\)$,\1,')
+
+    do_mount -t nfs "${REMOTE_HOST}:${REMOTE_DIR}" "${TEMP_NFS_MOUNT}" ||
+        return 1
+
+    local RET=0
+    do_cmd cp "${TEMP_NFS_MOUNT}/${REMOTE_FILE}" "${TARGET_FILE}" || RET=1
+
+    do_umount "${TEMP_NFS_MOUNT}" 2>/dev/null
+
+    return ${RET}
+}
+
+fetch_file_local()
+{
+    local SOURCE_URL="$1"
+    local TARGET_FILE="$2"
+
+    local SOURCE_FILE="${SOURCE_URL#file://}"
+
+    cp "${SOURCE_FILE}" "${TARGET_FILE}" || return 1
+
+    return 0
+}
+
+fetch_file_dev()
+{
+    local SOURCE_URL="$1"
+    local TARGET_FILE="$2"
+
+    local DEVICE=$(echo "${SOURCE_URL}" | sed 's,dev://\([^/]\+\)/.*$,\1,')
+    local SOURCE_FILE=$(echo "${SOURCE_URL}" | sed 's,^dev://[^/]\+/,,')
+
+    do_mount "/dev/${DEVICE}" "${TEMP_DEV_MOUNT}" || return 1
+
+    local RET=0
+    do_cmd cp "${TEMP_DEV_MOUNT}/${SOURCE_FILE}" "${TARGET_FILE}" || RET=1
+
+    do_umount "${TEMP_DEV_MOUNT}" || return 1
+
+    return ${RET}
+}

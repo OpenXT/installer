@@ -1,0 +1,170 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${DISK_CONF}
+. ${PARTITION_CONF}
+. ${SCRIPT_DIR}/Functions/install-main
+
+mk_xc_partition_layout()
+{
+    deactivate_lvm             || return 1
+    remove_existing_partitions || return 1
+    create_xc_partition        || return 1
+    return 0
+}
+
+deactivate_lvm()
+{
+    mixedgauge "Deactivating existing logical volumes..." 0
+
+    if ! do_cmd vgchange -a n >&2 ; then
+        echo "ERROR: Failure deactivating existing logical volumes." >&2
+        return 1
+    fi
+    return 0
+}
+
+remove_existing_partitions()
+{
+    if [ "${REMOVE_PARTITIONS}" ] ; then
+        mixedgauge "Removing disk partitions..." 5
+
+        for P in ${REMOVE_PARTITIONS} ; do
+            local PARTITION_DEV="/dev/${P}"
+            local DISK_DEV=$(echo "${PARTITION_DEV}" | sed 's/[0-9]*$//')
+            local PARTITION_NUM=$(echo "${PARTITION_DEV}" | sed 's/^.*[a-z]//')
+
+            # Ignore errors returned by pvremove here as there may not
+            # actually be any LVM state to remove. Any important failures
+            # here will also cause the later creation commands to fail, so
+            # handle errors there.
+            do_cmd pvremove -ff -y "${PARTITION_DEV}" >&2
+
+            do_cmd fdisk -u "${DISK_DEV}" <<EOF >&2
+d
+${PARTITION_NUM}
+w
+EOF
+        done
+    fi
+    return 0
+}
+
+create_xc_partition()
+{
+    local PARTITION_DEV="/dev/${XC_PARTITION}"
+    local DISK_DEV=$(echo "${PARTITION_DEV}" | sed 's/[0-9]*$//')
+    local PARTITION_NUM=$(echo "${PARTITION_DEV}" | sed 's/^.*[a-z]//')
+
+    if [ "${CREATE_XC_PARTITION}" = "true" ] ; then
+        mixedgauge "Creating ${PRODUCT_BRAND} disk partition..." 10
+
+        do_cmd fdisk -u "${DISK_DEV}" <<EOF >&2
+n
+p
+${PARTITION_NUM}
+
+
+w
+EOF
+
+        realign_xc_partition
+    fi
+
+    do_cmd sfdisk -f -N"${PARTITION_NUM}" "${DISK_DEV}" <<EOF >&2
+,,${XC_PARTITION_TYPE}
+EOF
+
+    mixedgauge "Activating ${PRODUCT_BRAND} disk partition..." 15
+    do_cmd sfdisk -f "${DISK_DEV}" -A"${PARTITION_NUM}" >&2
+
+    echo "New partition layout:" >&2
+    fdisk -lu "${DISK_DEV}" >&2
+
+    reread_partition_table "${DISK_DEV}" || return 1
+
+    do_cmd dd if=/dev/zero of="${PARTITION_DEV}" bs=512 count=1
+    do_cmd sync
+
+    return 0
+}
+
+reread_partition_table()
+{
+    local DISK_DEV="$1"
+    local ATTEMPTS=0
+
+    echo "Re-reading partition table." >&2
+
+    while true ; do
+        ATTEMPTS=$((ATTEMPTS + 1))
+        echo "w" | do_cmd fdisk "${DISK_DEV}" >&2 && break
+
+        if [ "${ATTEMPTS}" -gt 30 ] ; then
+            echo "ERROR: Unable to re-read partition table." >&2
+            return 1
+        fi
+
+        echo "Retrying..." >&2
+        sleep 1
+    done
+
+    echo "Waiting for udev to update device nodes." >&2
+    do_cmd udevadm settle >&2
+
+    return 0
+}
+
+realign_xc_partition()
+{
+    local PARTITION_DEV="/dev/${XC_PARTITION}"
+    local DISK_DEV=$(echo "${PARTITION_DEV}" | sed 's/[0-9]*$//')
+    local PARTITION_NUM=$(echo "${PARTITION_DEV}" | sed 's/^.*[a-z]//')
+
+    FIRST_SECTOR=$(fdisk -lu "${DISK_DEV}" |
+                   grep "^${PARTITION_DEV}" |
+                   awk '{print $2}')
+
+    if [ -z "${FIRST_SECTOR}" ] ; then
+        echo "ERROR: Failed to identify ${PRODUCT_BRAND} partition." >&2
+        exit 1
+    fi
+
+    ALIGNED_FIRST_SECTOR=$(((FIRST_SECTOR + SECTOR_ALIGNMENT - 1) /
+                            SECTOR_ALIGNMENT *
+                            SECTOR_ALIGNMENT))
+
+    if [ "${FIRST_SECTOR}" -ne "${ALIGNED_FIRST_SECTOR}" ] ; then
+        echo "Realigning ${PRODUCT_BRAND} partition: moving first sector" \
+             "from {FIRST_SECTOR} to ${ALIGNED_FIRST_SECTOR}" >&2
+
+        do_cmd fdisk -u "${DISK_DEV}" <<EOF >&2
+x
+b
+${PARTITION_NUM}
+${ALIGNED_FIRST_SECTOR}
+w
+EOF
+    fi
+}
+
+mk_xc_partition_layout || exit ${Abort}
+
+exit ${Continue}

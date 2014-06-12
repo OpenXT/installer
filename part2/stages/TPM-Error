@@ -1,0 +1,51 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${MEASURED_LAUNCH_CONF}
+
+not_previous || exit ${Previous}
+
+if [ "${MEASURE_LAUNCH}" = "true" ]; then
+    if ! interactive; then
+        exit ${Abort}
+    else
+        dialog --yes-label "Continue" --no-label "Abort" --yesno "
+ Your systems TPM or Intel TXT are either
+ disabled in your BIOS or non-functional.
+
+ ${PRODUCT_BRAND} Measured Launch cannot be
+ configured. Would you like to Continue the
+ install or Abort?" 12 49
+
+        RET=$?
+        if [ $RET -eq 0 ]; then
+            exit ${Continue}
+        else
+            exit ${Abort}
+        fi
+    fi
+elif [ "${MEASURE_LAUNCH}" = "false" ]; then
+    # elected not to configure measured launch anyway
+    # error is irrelevant
+    exit ${Continue}
+else
+    echo "Something's wrong" >&2
+    exit ${Abort}
+fi

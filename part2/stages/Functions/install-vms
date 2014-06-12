@@ -1,0 +1,201 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+install_vms()
+{
+    [ -r ${VHD_CONF} -a -r ${VM_CONF} ] || return 1
+
+    . ${VHD_CONF}
+    . ${VM_CONF}
+
+    local RET=0
+
+    if [ "${VM_COUNT}" -gt 0 ] ; then
+        for VM_NUM in $(seq 1 "${VM_COUNT}") ; do
+            install_vm "${VM_NUM}" || vm_unwind || return 1
+        done
+
+        vm_unwind
+    fi
+
+    return 0
+}
+
+install_vm()
+{
+    local VM_NUM="$1"
+
+    local VM_UUID=$(get_var "VM_${VM_NUM}_UUID")
+    local VM_SOURCE=$(get_var "VM_${VM_NUM}_SOURCE")
+    local VM_VHD_COUNT=$(get_var "VM_${VHD_NUM}_VHD_COUNT")
+
+    do_cmd mkdir -p "${DOM0_MOUNT}/config/vms" || return 1
+
+    local VM_FILE="${DOM0_MOUNT}/config/vms/${VM_UUID}.db"
+    do_cmd rm -f "${VM_FILE}"
+
+    if ! fetch_vm_db_file "${VM_SOURCE}" "${VM_FILE}" ; then
+        if interactive ; then
+            dialog --ok-label "Continue" \
+                   --msgbox "ERROR: Failed to retrieve virtual machine configuration file from:\n\n    ${VM_SOURCE}" 0 0
+        fi
+        return 1
+    fi
+
+    replace_vm_uuid "${VM_FILE}" "${VM_UUID}"
+
+    for VM_VHD_NUM in $(seq 1 "${VM_VHD_COUNT}") ; do
+        local VM_VHD_INDEX=$(get_var "VM_${VM_NUM}_VHD_INDEX_${VM_VHD_NUM}")
+        local VM_VHD_LABEL=$(get_var "VM_${VM_NUM}_VHD_LABEL_${VM_VHD_NUM}")
+
+        local VHD_UUID=$(vhd_label_to_uuid "${VM_VHD_LABEL}")
+        local VHD_PATH="/storage/disks/${VHD_UUID}.vhd"
+
+        replace_vm_vhd_path "${VM_FILE}" "${VM_VHD_INDEX}" "${VHD_PATH}"
+    done
+
+    return 0
+}
+
+fetch_vm_db_file()
+{
+    local VM_SOURCE="$1"
+    local VM_FILE="$2"
+
+    fetch_file "${VM_SOURCE}" "${VM_FILE}" || return 1
+
+    return 0
+}
+
+vhd_label_to_uuid()
+{
+    local VHD_LABEL_TO_FIND="$1"
+
+    local N
+    for N in $(seq 1 "${VHD_COUNT}") ; do
+        local VHD_LABEL=$(get_var "VHD_${N}_LABEL")
+        if [ "${VHD_LABEL}" -a "${VHD_LABEL}" = "${VHD_LABEL_TO_FIND}" ] ; then
+            get_var "VHD_${N}_UUID"
+            return 0
+        fi
+    done
+
+    echo "ERROR: Undefined VHD label '${VHD_LABEL_TO_FIND}'." >&2
+    return 1
+}
+
+#------------------------------------------------------------------------------
+
+replace_vm_uuid()
+{
+    local VM_FILE="$1"
+    local VM_UUID="$2"
+
+    update_vm_db_file "${VM_FILE}" \
+                      "vm-uuid" \
+                      "${VM_UUID}" || return 1
+
+    return 0
+}
+
+replace_vm_vhd_path()
+{
+    local VM_FILE="$1"
+    local VM_VHD_INDEX="$2"
+    local VHD_PATH="$3"
+
+    update_vm_db_file "${VM_FILE}" \
+                      "vhd-path" \
+                      "${VM_VHD_INDEX}" \
+                      "${VHD_PATH}" || return 1
+
+    return 0
+}
+
+update_vm_db_file()
+{
+    local VM_FILE="$1"
+    local MODE="$2"
+
+    local KEY=
+    local VALUE=
+
+    case "${MODE}" in
+        vm-uuid)
+            VALUE="$3"
+            ;;
+
+        vhd-path)
+            KEY="$3"
+            VALUE="$4"
+            ;;
+    esac
+
+    local ESCAPED_VALUE=$(escape_db_string "${VALUE}")
+    local TMP_FILE=$(mktemp -t)
+
+    awk '
+        BEGIN
+        {
+            i=0
+        }
+
+        {
+            if ($0 ~ /\{ *$/)
+            {
+                stack[i++] = $0
+            }
+            else if ($0 ~ /\} *,? *$/)
+            {
+                stack[i--] = ""
+            }
+
+            if (("'"${MODE}"'" == "vm-uuid" &&
+                 i == 1 &&
+                 stack[0] ~ /^ *\{ *$/ &&
+                 $0 ~ /^ *"uuid":/) ||
+                ("'"${MODE}"'" == "vhd-path" &&
+                 i == 4 &&
+                 stack[0] ~ /^ *\{ *$/ &&
+                 stack[1] ~ /^ *"config": *\{ *$/ &&
+                 stack[2] ~ /^ *"disk": *\{ *$/ &&
+                 stack[3] ~ /^ *"'"${KEY}"'": *\{ *$/ &&
+                 $0 ~ /^ *"path":/))
+            {
+                print gensub(/(: *").*(" *,? *)$/, "\\1//REPLACE//\\2", "1")
+            }
+            else
+            {
+                print
+            }
+        }
+    ' < "${VM_FILE}" |
+        sed "s/\/\/REPLACE\/\//${ESCAPED_VALUE}/" > "${TMP_FILE}" || return 1
+
+    do_cmd cat "${TMP_FILE}" > "${VM_FILE}" || return 1
+    do_cmd rm -f "${TMP_FILE}"
+
+    return 0
+}
+
+escape_db_string()
+{
+    # Escape \ / " for json, \ / & for sed.
+    echo "$1" | sed -e 's,[\\/"],\\&,g' -e 's,[\\/&],\\&,g'
+}

@@ -1,0 +1,58 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+not_previous || exit ${Previous}
+
+if answerfile_specifies "measure-launch"; then
+    not_previous || exit ${Previous}
+    exit ${Continue}
+elif ! interactive; then
+    exit ${Continue}
+else
+    while [ 1 ]; do
+        dialog --colors --extra-button \
+            --extra-label "Acknowledge" \
+            --ok-label "Reconsider" \
+            --cancel-label "Abort" \
+            --yesno "
+ You have elected to install ${PRODUCT_BRAND}
+ without configuring ${PRODUCT_BRAND} Measured
+ Launch.  Doing so will invalidate some
+ XT security features.
+
+ Either \ZbReconsider\ZB this and go back to
+ configure ${PRODUCT_BRAND} Measured Launch,
+ \ZbAcknowledge\ZB these risks to continue 
+ with Measured Launch disabled, or
+ \ZbAbort\ZB the install.
+" 16 46
+        case $? in
+            0|255) exit ${Previous} ;;
+            1) exit ${Abort} ;;
+            3)
+                # User pressed 'Acknowledge' button, disable Measured Launch
+                echo "MEASURE_LAUNCH='false'" > ${MEASURED_LAUNCH_CONF}
+                exit ${Continue}
+                ;;
+            *) continue ;;
+        esac
+    done
+fi

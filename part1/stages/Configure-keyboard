@@ -1,0 +1,134 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${LANGUAGE_CONF}
+
+set_default_keyboard()
+{
+    DEFAULT_KEYBOARD="us"
+
+    while read LINE ; do
+        local VALID_LANGUAGE=$(echo "${LINE}" | cut -f1 -d:)
+
+        if [ "${LANGUAGE}" = "${VALID_LANGUAGE}" ] ; then
+            DEFAULT_KEYBOARD=$(echo "${LINE}" | cut -f2 -d:)
+        fi
+    done < "${LANGUAGES_LIST}"
+}
+
+choose_keyboard()
+{
+    CAPTURE=$(mktemp -t)
+
+    DEFAULT_KEYBOARD_NAME="$(get_keyboard_name "${DEFAULT_KEYBOARD}")"
+    
+    awk -F: '$2 == "y" { print "\"" $5 "\" \"\"" }' "${KEYBOARDS_LIST}" |
+        xargs dialog --ok-label Select \
+                     --cancel-label Previous \
+                     --default-item "${DEFAULT_KEYBOARD_NAME}" \
+                     --menu "Select keyboard layout" 7 40 0 2>${CAPTURE}
+    OPT=$?
+
+    if [ ${OPT} == 0 ] ; then
+        local KEYBOARD_NAME=$(cat ${CAPTURE} 2>/dev/null)
+        KEYBOARD=$(get_keyboard_from_name "${KEYBOARD_NAME}")
+        rm -f ${CAPTURE}
+        return 0
+    fi
+
+    rm -f ${CAPTURE}
+    [ ${OPT} == 1 ]   && exit ${Abort}
+    [ ${OPT} == 123 ] && exit ${Previous}
+    [ ${OPT} == 124 ] && exit ${Previous}
+    exit ${Abort}
+}
+
+get_keyboard_name()
+{
+    local KEYBOARD="$1"
+
+    awk -F: -v "k=${KEYBOARD}" '$1 == k { print $5 }' "${KEYBOARDS_LIST}"
+}
+
+get_keyboard_from_name()
+{
+    local KEYBOARD_NAME="$1"
+
+    awk -F: -v "k=${KEYBOARD_NAME}" '$5 == k { print $1 }' "${KEYBOARDS_LIST}"
+}
+
+check_keyboard()
+{
+    local KEYBOARD="$1"
+
+    local KEYBOARD_NAME=$(get_keyboard_name "${KEYBOARD}")
+
+    [ "${KEYBOARD_NAME}" ]
+}
+
+set_default_keyboard
+
+if answerfile_specifies "keyboard" ; then
+
+    not_previous || exit ${Previous}
+
+    KEYBOARD=$(read_xml_tag "${ANSWERFILE}" "keyboard")
+    DEFER_KEYBOARD=$(read_xml_attr "${ANSWERFILE}" "keyboard" "defer")
+
+    if [ "${DEFER_KEYBOARD}" != "true" ] ; then
+        DEFER_KEYBOARD="false"
+    fi
+
+    if [ "${KEYBOARD}" ] ; then
+        if ! check_keyboard "${KEYBOARD}" ; then
+            echo "Answerfile specifies invalid keyboard layout '${KEYBOARD}':" \
+                 "defaulting to '${DEFAULT_KEYBOARD}'." >&2
+            KEYBOARD=${DEFAULT_KEYBOARD}
+        fi
+    else
+        if [ "${DEFER_KEYBOARD}" = "false" ] ; then
+            echo "Answerfile does not specify keyboard layout:" \
+                 "assuming '${DEFAULT_KEYBOARD}'." >&2
+        fi
+        KEYBOARD=${DEFAULT_KEYBOARD}
+    fi
+
+elif interactive ; then
+
+    choose_keyboard
+    DEFER_KEYBOARD="false"
+
+else
+
+    not_previous || exit ${Previous}
+
+    echo "Answerfile does not specify keyboard layout:" \
+         "assuming '${DEFAULT_KEYBOARD}'." >&2
+    KEYBOARD=${DEFAULT_KEYBOARD}
+    DEFER_KEYBOARD="false"
+
+fi
+
+echo "KEYBOARD='${KEYBOARD}'" > "${KEYBOARD_CONF}"
+echo "DEFER_KEYBOARD='${DEFER_KEYBOARD}'" >> "${KEYBOARD_CONF}"
+
+do_cmd loadkeys "${KEYBOARD}" || exit ${Abort}
+
+exit ${Continue}

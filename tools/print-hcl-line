@@ -1,0 +1,35 @@
+#!/bin/bash
+#
+# Copyright (c) 2010 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+DMIDECODE_FILE="$1"
+
+dmidecode_section()
+{
+    SECTION="$1"
+    cat "${DMIDECODE_FILE}" | sed -e '1,/DMI type '${SECTION}'/ d' -e '/^Handle/,$ d'
+}
+
+# identify the device:
+MANUFACTURER="$(dmidecode_section 1 | sed -ne 's/\s*$//' -e 's/^\s*Manufacturer: \(.*\)$/\1/p')"
+PRODUCT_NAME="$(dmidecode_section 1 | sed -ne 's/\s*$//' -e 's/^\s*Product Name: \(.*\)$/\1/p')"
+FAMILY="$(dmidecode_section 1 | sed -ne 's/\s*$//' -e 's/^\s*Family: \(.*\)$/\1/p')"
+VERSION="$(dmidecode_section 1 | sed -ne 's/\s*$//' -e 's/^\s*Version: \(.*\)$/\1/p')"
+BIOS_VERSION="$(dmidecode_section 0 | sed -ne 's/\s*$//' -e 's/^\s*Version: \(.*\)$/\1/p')"
+
+echo "${MANUFACTURER}:${PRODUCT_NAME}:${FAMILY}:${VERSION}:${BIOS_VERSION}"

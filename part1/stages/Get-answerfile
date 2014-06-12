@@ -1,0 +1,180 @@
+#!/bin/ash
+#
+# Copyright 2009 (c) Citrix Systems
+#
+# Parse the kernel command line to locate the answerfile.
+# Ensure that a local copy of the answerfile is available.
+#
+# An answerfile may be a local file, included in the installer (initrd)
+# filesystem, or a remote file obtained via NFS, HTTP, or anonymous FTP.
+#
+
+#
+# Copyright (c) 2012 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+
+. ${SCRIPT_DIR}/functions
+# ${FULL_ANSWERFILE} and ${ANSWERFILE} are defined in functions
+
+# Read the "answerfile" option from the kernel command line
+ANSWERFILE_OPT=$(read_kcmdline_opt "answerfile")
+if [ -z "${ANSWERFILE_OPT}" ] ; then
+    rm -f ${ANSWERFILE}
+    echo "AUTOMATED=False" >"${AUTOMATED_CONF}"
+    exit ${Continue}
+fi
+
+nic_has_carrier()
+{
+    local DEV="$1"
+
+    [ "x$(cat /sys/class/net/${DEV}/carrier)" = "x1" ]
+}
+
+wait_for_carrier()
+{
+    local DEV="$1"
+    local TIMEOUT="$2"
+
+    # Give the network time to come up. Put this indication on screen even
+    # in non-interactive case:
+    dialog --infobox "\n\n     Detecting hardware..." 7 35
+
+    COUNT=0
+    while [ "${COUNT}" -lt "${TIMEOUT}" ] ; do
+        nic_has_carrier "${DEV}" && return
+        sleep 1
+        COUNT=$((COUNT + 1))
+    done
+}
+
+network_up_for_answerfile()
+{
+    # 1. Is the network already up?
+    NIC_LIST="$(find_physical_nics)"
+    NIC_COUNT="$?"
+
+    for DEV in ${NIC_LIST} ; do
+        if ifconfig ${DEV} | egrep -q '^\s*UP ' ; then
+            if ifconfig ${DEV} | egrep -q '^\s*inet addr:(12[^7]|1[^2]|[^1])' ; then
+                return 0
+            fi
+        fi
+    done
+
+    # 2. See if a device is specified on the kernel command line.
+    #    Set 'NIC' to the interface to use.
+    #    Set 'NIC_MODE' to 'dhcp' or 'static'
+
+    ANSWERFILE_NW=$(read_kcmdline_opt "answerfile_nw")
+    unset NIC
+
+    if [ -z "${ANSWERFILE_NW}" ] ; then
+        case ${NIC_COUNT} in
+            0)
+                echo "No network interfaces found: aborting.">&2
+                return 1
+                ;;
+            *)
+                # Take the first NIC with carrier.
+                for DEV in ${NIC_LIST} ; do
+                    ifconfig "${DEV}" up
+                done
+
+                wait_for_carrier $(echo ${NIC_LIST} | cut -f1 -d' ') 10
+
+                for DEV in ${NIC_LIST} ; do
+                    if nic_has_carrier "${DEV}" ; then
+                        NIC="${DEV}"
+                        break
+                    fi
+                done
+
+                for DEV in ${NIC_LIST} ; do
+                    ifconfig "${DEV}" down
+                done
+
+                if [ -z "${NIC}" ] ; then
+                    echo "No network interface with carrier: aborting.">&2
+                    return 1
+                fi
+                ;;
+        esac
+    else
+        # TODO: change defn of this cmd line opt, to support dhcp/static config
+        NIC="${ANSWERFILE_NW}"
+    fi
+    NIC_MODE="dhcp" # TODO: support static IP configuration too
+
+    # 3. Bring up NIC
+    ifdown -a >&2
+
+    echo >/etc/network/interfaces "# Configure loopback
+auto lo
+iface lo inet loopback
+# Configure ${NIC}
+auto ${NIC}
+iface ${NIC} inet dhcp
+    udhcpc_opts -T5 -t10"
+
+    ifup -a >&2 || return 1
+
+    return 0
+}
+
+if fetch_requires_network "${ANSWERFILE_OPT}" ; then
+    network_up_for_answerfile || exit ${Abort}
+fi
+
+LOCAL_ANSWERFILE="/tmp/local.ans"
+fetch_file "${ANSWERFILE_OPT}" "${LOCAL_ANSWERFILE}" || exit ${Abort}
+
+# Does the answerfile contain a generator script?
+generate_answerfile()
+{
+    IN=$1
+    OUT=$2
+    GEN_SCRIPT=$(mktemp -t)
+    sed -ne '/<generator>/,/^"$/{ /<generator>/b ; /<\/generator/b ; p }' \
+         <"${IN}" >${GEN_SCRIPT}
+    chmod 755 ${GEN_SCRIPT}
+    ${GEN_SCRIPT} >"${OUT}"
+    rm ${GEN_SCRIPT}
+}
+
+if grep -q -s '<generator>' "${LOCAL_ANSWERFILE}" ; then
+    generate_answerfile "${LOCAL_ANSWERFILE}" "${FULL_ANSWERFILE}"
+else
+    cp -f "${LOCAL_ANSWERFILE}" "${FULL_ANSWERFILE}"
+fi
+
+[ -r "${FULL_ANSWERFILE}" ] || exit ${Abort}
+
+# The answerfile can specify "interactive": in this way, any entries
+# present in the answerfile will override the usual interactive prompt,
+# but those missing from the answerfile can be interactively supplied.
+INTERACTIVE=$(read_xml_tag "${FULL_ANSWERFILE}" "interactive" | tr [A-Z] [a-z])
+if  [ "x${INTERACTIVE}" = "xtrue" ] || [ "x${INTERACTIVE}" = "xyes" ] ; then
+    echo "AUTOMATED=False" >"${AUTOMATED_CONF}"
+else
+    echo "AUTOMATED=True"  >"${AUTOMATED_CONF}"
+fi
+
+#TODO: syntax check ${FULL_ANSWERFILE}
+
+exit ${Continue}

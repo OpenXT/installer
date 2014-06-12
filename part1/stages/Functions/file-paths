@@ -1,0 +1,117 @@
+#!/bin/ash
+#
+# Copyright (c) 2012 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+# Directory containing all the files for part1.
+INSTALL_ROOT="/install/part1"
+
+# Directory into which part2 will be unpacked.
+INSTALL_ROOT_PART2="/install/part2"
+
+# Directory to write configuration data in the installer environment:
+INSTALL_DATA="${INSTALL_ROOT}/data"
+EXTRA_DATA="${INSTALL_DATA}/supplemental-packs"
+
+#-----------------------------------------------------------
+# Define the set of config files written by the install sequence.
+
+FULL_ANSWERFILE="${INSTALL_DATA}/answerfile.full"
+ANSWERFILE="${INSTALL_DATA}/answerfile"
+AUTOMATED_CONF="${INSTALL_DATA}/automated.conf"
+HOST_CAPABILITY_CONF="${INSTALL_DATA}/host-capability.conf"
+NETWORK_NIC_CONF="${INSTALL_DATA}/network-nic.conf"
+INSTALL_STATUS_CONF="${INSTALL_DATA}/install-status.conf"
+OPTICAL_CONF="${INSTALL_DATA}/optical.conf"
+NETWORK_REPO_CONF="${INSTALL_DATA}/network-repo.conf"
+LANGUAGE_CONF="${INSTALL_DATA}/language.conf"
+KEYBOARD_CONF="${INSTALL_DATA}/keyboard.conf"
+REPO_CERT_CONF="${INSTALL_DATA}/repo-cert.conf"
+NETWORK_STATUS_CONF="${INSTALL_DATA}/network-status.conf"
+STATUS_REPORT_CONF="${INSTALL_DATA}/status-report.conf"
+EULA_CONF="${INSTALL_DATA}/eula.conf"
+NEXT_PACK_CONF="${EXTRA_DATA}/next-pack.conf"
+HARD_DISK_REPO_CONF="${INSTALL_DATA}/hard-disk-repo.conf"
+BAD_MOUNT_CONF="${INSTALL_DATA}/bad-mount.conf"
+REQUEST_MEDIA_CONF="${INSTALL_DATA}/request-media.conf"
+ISCSI_REPO_CONF="${INSTALL_DATA}/iscsi-repo.conf"
+REPO_LOC_CONF="${INSTALL_DATA}/repo-location.conf"
+DETECT_REPO_CONF="${INSTALL_DATA}/detect-repo.conf"
+KCMD_LINE="${INSTALL_DATA}/kcmdline"
+
+#-----------------------------------------------------------
+# Filesystem paths
+
+INSTALL_CONFIG_DIR="${INSTALL_ROOT}/config"
+
+LANGUAGES_LIST="${INSTALL_CONFIG_DIR}/languages.txt"
+
+# Dialog configuration files
+DIALOG_WARN_RC="${INSTALL_CONFIG_DIR}/dialog-warn.rc"
+DIALOG_CAUTION_RC="${INSTALL_CONFIG_DIR}/dialog-caution.rc"
+
+VERSION_FILE="/etc/xenclient.conf"
+
+# Log file
+INSTALLER_LOG="/var/log/installer"
+
+LICENSE_FILE="/usr/share/xenclient/EULA-en-us"
+KEYBOARDS_LIST="/usr/share/xenclient/keyboards"
+
+# Directory for files downloaded by the installer:
+INSTALL_DOWNLOAD_DIR="${INSTALL_ROOT}/downloads"
+
+# Directory under which part1 will perform all mounts:
+MOUNT_ROOT="/mnt/part1"
+
+# Directory under which part2 will perform all mounts:
+MOUNT_ROOT_PART2="/mnt/part2"
+
+# Directories used to mount repositories:
+OPTICAL_MOUNT="${MOUNT_ROOT}/optical"
+USB_MOUNT="${MOUNT_ROOT}/usb"
+NFS_MOUNT="${MOUNT_ROOT}/nfs-mount"
+HARD_DISK_REPO_MOUNT="${MOUNT_ROOT}/hard-disk-repo"
+ISCSI_REPO_MOUNT="${MOUNT_ROOT}/iscsi-repo"
+
+# Directories used for temporary mounts:
+TEMP_DEV_MOUNT="${MOUNT_ROOT}/dev-temp"
+TEMP_NFS_MOUNT="${MOUNT_ROOT}/nfs-temp"
+TEMP_OPTICAL_MOUNT="${MOUNT_ROOT}/optical-temp"
+TEMP_USB_MOUNT="${MOUNT_ROOT}/usb-temp"
+
+# Directory used to mount existing dom0 filesystem when collecting a status
+# report:
+STATUS_MOUNT="${MOUNT_ROOT}/status"
+
+# Directory installation will be performed from:
+INSTALL_SOURCE_DIR="${INSTALL_ROOT}/packages"
+
+EXTRA_DATA_SEQUENCE="${EXTRA_DATA}/seq"
+
+# Script to run a subgraph
+SUBGRAPH_SCRIPT="run"
+
+# Config files installed on the target filesystem for use by dom0. The second
+# set will be excluded from the archive of the install data so that only one
+# copy of them exists on the target filesystem.
+DOM0_CONFIGS="${LANGUAGE_CONF} ${KEYBOARD_CONF} ${EULA_CONF} ${REPO_CERT_CONF}"
+DOM0_SENSITIVE_CONFIGS=""
+
+#-----------------------------------------------------------
+# Temporary files lasting installation time
+DIALOG_PID_FILE="/tmp/dialog.pid"

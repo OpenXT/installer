@@ -1,0 +1,140 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+interactive || exit ${Continue}
+
+# The status report filename is written in the file:
+# ${STATUS_REPORT_CONF}
+[ -r "${STATUS_REPORT_CONF}" ] || exit ${Abort}
+
+# export here ensures that subprocesses can locate the status report
+export REPORT=$(cat ${STATUS_REPORT_CONF})
+[ -r "${REPORT}" ] || exit ${Abort}
+
+dialog --infobox "\n  Bringing up the wired network..." 5 40
+
+# bring up the wired interface if not already up:
+IP_ADDRESS="$(ifconfig eth0 | sed -ne 's/^.*inet addr:\([^ ]*\) .*$/\1/p')"
+if [ "x${IP_ADDRESS}" = "x" ] ; then
+    ifconfig eth0 up
+    udhcpc eth0 >/dev/null 2>/dev/null
+    IP_ADDRESS="$(ifconfig eth0 | sed -ne 's/^.*inet addr:\([^ ]*\) .*$/\1/p')"
+    if [ "x${IP_ADDRESS}" = "x" ] ; then
+        dialog --ok-label Continue --msgbox "\n Error: Could not configure network." 7 40
+        exit {NoNetwork}
+    fi
+fi
+
+################################################################################
+# Display the URL.
+
+# See below comment where use of this port is explained.
+SECOND_PORT="8080"
+
+# export here ensures that subprocesses can access the full url:
+export REDIRECT_FILE="$(basename ${REPORT})"
+export REDIRECT_URL="http://${IP_ADDRESS}:${SECOND_PORT}/${REDIRECT_FILE}"
+
+# This is the URL the user enters:
+URL="http://${IP_ADDRESS}"
+dialog --colors --infobox "\n Download the status report from:\n\n       ${URL}\n\n  Press \Zb[Enter]\ZB when complete." 9 38
+
+################################################################################
+# Run a webserver, serving the status report:
+
+# This use of the 302 ensures that the downloaded file has
+# the correct filename, and that the user doesn't have to type in
+# a long URL of mostly numerals.
+
+# Due to a nasty netcat versus busybox interaction, SERVE_SCRIPT
+# must be an absolute path and have a basename of 'sh'. Yuck.
+SERVE_SCRIPT="/tmp/serve-script/sh"
+mkdir -p "$(dirname ${SERVE_SCRIPT})"
+
+cat >"${SERVE_SCRIPT}" <<EOF
+#!/bin/ash
+
+REPORT="${REPORT}"
+REDIRECT_FILE="${REDIRECT_FILE}"
+REDIRECT_URL="${REDIRECT_URL}"
+
+# Not the most sophisticated web server in the West.
+do_read_input() {
+    KEEP_ALIVE=1
+    read INPUT
+    while [ 1 ] ; do
+        read NEXT
+        if echo \${NEXT} | grep -i -q "Connection: keep-alive" ; then
+            KEEP_ALIVE=0
+        fi
+        if [ "x\$(echo -n "\${NEXT}" | sed 's///')" = "x" ] ; then
+            break
+        fi
+    done
+}
+
+serve_file() {
+        FILE_SIZE="\$(ls -l \${REPORT} | sed -e 's/\s\+/ /g' | cut -f5 -d' ')"
+        echo "HTTP/1.0 200 OK"
+        echo "Content-type: application/octet-stream"
+        echo "Content-length: \${FILE_SIZE}"
+        echo
+        cat "\${REPORT}"
+}
+
+do_read_input
+
+if [ "\${INPUT#GET / }" != "\${INPUT}" ] ; then
+        echo "HTTP/1.1 302 Found"
+        echo "Location: \${REDIRECT_URL}"
+        [ ${KEEP_ALIVE} -ne 0 ] || echo "Connection: Keep-Alive"
+        echo
+        [ ${KEEP_ALIVE} -ne 0 ] || do_read_input
+fi
+if [ "\${INPUT#GET /\${REPORT_FILE}}" != "\${INPUT}" ] ; then
+    serve_file
+    sleep 5
+else
+    echo "HTTP/1.0 404 Not Found"
+    echo "Content-type: application/text"
+    echo
+    echo "404 Not Found"
+fi
+EOF
+chmod 755 "${SERVE_SCRIPT}"
+
+# The installed version of netcat doesn't support persistent
+# listening, and we can't restart netcat fast enough to be
+# listening on port 80 again after serving the redirect, so we run
+# another copy on another port to serve the file after the redirect.
+
+nc -l -p 80 -e "${SERVE_SCRIPT}" &
+WEBSERVER_1="$!"
+nc -l -p "${SECOND_PORT}" -e "${SERVE_SCRIPT}" &
+WEBSERVER_2="$!"
+
+################################################################################
+# When the user hits "enter", shut down the server and continue.
+
+read DUMMY
+kill -9 "${WEBSERVER_1}" "${WEBSERVER_2}"
+
+exit ${Continue}

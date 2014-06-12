@@ -1,0 +1,38 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${SCRIPT_DIR}/Functions/subgraph
+. ${SCRIPT_DIR}/Functions/supp-packs
+
+not_previous || exit ${Previous}
+
+PACK="$(next_pack_to_commit)"
+
+# FIXME - revisit this - ${PACK} works here because we copied XC-REPOSITORY and
+# XC-PACKAGES into it in X-record-optical-pack-data.
+run_subgraph "commit-extra" <<EOF
+PACKAGES_DIR='${PACK}'
+EOF
+
+OPT=$?
+
+mark_pack_committed "${PACK}"
+
+exit ${OPT}

@@ -1,0 +1,57 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+not_previous || exit ${Previous}
+
+link_usb_repo()
+{
+    # symlink so the installer can locate the install data
+    if [ -r "${USB_MOUNT}/${PACKAGES_DOT_MAIN}" ] ; then
+        mkdir -p $(dirname "${INSTALL_SOURCE_DIR}")
+        rm -rf "${INSTALL_SOURCE_DIR}/${PACKAGES_DOT_MAIN}"
+        ln -s "${USB_MOUNT}/${PACKAGES_DOT_MAIN}" "${INSTALL_SOURCE_DIR}/"
+    fi
+
+    for F in ${REPO_METADATA_FILENAMES} ; do
+        cp -f "${INSTALL_SOURCE_DIR}/${PACKAGES_DOT_MAIN}/${F}" "${INSTALL_DATA}/" || exit ${Abort}
+    done
+}
+
+mixedgauge "Mounting usb device." 30
+
+# See if already mounted on mount point:
+if mount | grep -q " on ${USB_MOUNT} type" ; then
+        do_umount "${USB_MOUNT}"
+fi
+
+for i in /dev/${DEFAULT_USB_DEVICE}* ; do
+        do_mount ${i} ${USB_MOUNT} || continue
+        if [ -d "${USB_MOUNT}/${PACKAGES_DOT_MAIN}" ] ; then
+                mixedgauge "Mounted usb device." 100
+                link_usb_repo
+                rm -f "${BAD_MOUNT_CONF}"
+                validate_repo "${USB_MOUNT}/${PACKAGES_DOT_MAIN}" \
+                              "${INTERACTIVE}" || exit ${MountFail}
+                exit ${Continue}
+        fi
+        do_umount "${USB_MOUNT}"
+done
+
+exit ${MountFail}

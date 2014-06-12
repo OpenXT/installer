@@ -1,0 +1,133 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+not_previous || exit ${Previous}
+
+[ -r ${HARD_DISK_REPO_CONF} ] || exit ${Abort}
+. ${HARD_DISK_REPO_CONF}
+# ^^^ defines HARD_DISK_REPO_DEVICE
+
+#------------------------------------------------------------------------------
+
+copy_from_hard_disk()
+{
+    # Mount device.
+    if ! do_mount -o ro "/dev/${HARD_DISK_REPO_DEVICE}" \
+                     "${HARD_DISK_REPO_MOUNT}" ; then
+        echo "Failed to mount device '${HARD_DISK_REPO_DEVICE}': aborting." >&2
+        exit ${Abort}
+    fi
+
+    # Copy metadata.
+    local PERCENT=5
+    mixedgauge "Reading manifest..." "${PERCENT}"
+
+    local FILE
+    for FILE in ${REPO_METADATA_FILENAMES} ; do
+        copy_file "${FILE}" || return 1
+    done
+
+    # Basic repository validation.
+    sanity_check_repo "${INSTALL_DOWNLOAD_DIR}/${PACKAGES_DOT_MAIN}" || return 2
+
+    # Parse package data.
+    local PKGDATA_FILE="${INSTALL_DOWNLOAD_DIR}/${PACKAGES_DOT_MAIN}/${PKGDATA_FILENAME}"
+    local PKG_LIST="$(package_list ${PKGDATA_FILE})"
+
+    # Count number of files to determine percentage complete per file.
+    local FCOUNT=0
+    for FILE in ${PKG_LIST} ; do
+        FCOUNT="$((FCOUNT + 1))"
+    done
+
+    local PERCENT_PER_FILE=90
+    [ "${FCOUNT}" = 0 ] || PERCENT_PER_FILE="$(( 90 / FCOUNT ))"
+
+    PERCENT=10
+
+    # Copy packages.
+    for FILE in $(package_list ${PKGDATA_FILE}) ; do
+        mixedgauge "Reading ${FILE}..." "${PERCENT}"
+        copy_file "${FILE}" || return 1
+        PERCENT="$((PERCENT + PERCENT_PER_FILE))"
+    done
+
+    if ! do_umount "${HARD_DISK_REPO_MOUNT}" ; then
+        echo "Failed to unmount device '${HARD_DISK_REPO_DEVICE}':" \
+             "aborting." >&2
+        exit ${Abort}
+    fi
+
+    # Validate repository.
+    validate_repo "${INSTALL_DOWNLOAD_DIR}/${PACKAGES_DOT_MAIN}" \
+                  "${INTERACTIVE}" || return 2
+
+    return 0
+}
+
+copy_file()
+{
+    local FILE="$1"
+
+    local SRC_FILE="${HARD_DISK_REPO_MOUNT}/${PACKAGES_DOT_MAIN}/${FILE}"
+    local DEST_FILE="${INSTALL_DOWNLOAD_DIR}/${PACKAGES_DOT_MAIN}/${FILE}"
+    local DEST_DIR="$(dirname "${DEST_FILE}")"
+
+    mkdir -p "${DEST_DIR}"
+    if ! cp "${SRC_FILE}" "${DEST_DIR}/" ; then
+        echo "Failed to copy ${FILE} from hard disk repository: aborting." >&2
+        return 1
+    fi
+
+    return 0
+}
+
+exit_copy_failed()
+{
+    if interactive ; then
+        dialog --ok-label "Continue" \
+               --msgbox "ERROR: Reading from hard disk repository failed" 0 0
+    fi
+
+    exit ${BadCopy}
+}
+
+exit_verify_failed()
+{
+    if interactive ; then
+        dialog --ok-label "Continue" \
+               --msgbox "ERROR: Hard disk repository verification failed" 0 0
+    fi
+
+    exit ${BadCopy}
+}
+
+#------------------------------------------------------------------------------
+
+empty_download_dir || exit ${Abort}
+
+copy_from_hard_disk
+RET=$?
+[ ${RET} = 1 ] && exit_copy_failed
+[ ${RET} = 2 ] && exit_verify_failed
+
+link_install_to_downloads || exit ${Abort}
+
+exit ${Continue}

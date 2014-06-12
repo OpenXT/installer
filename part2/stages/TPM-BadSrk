@@ -1,0 +1,57 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${MEASURED_LAUNCH_CONF}
+
+not_previous || exit ${Previous}
+
+if [ "${MEASURE_LAUNCH}" = "true" ]; then
+    if ! interactive; then
+        echo "ERROR: answerfile specifies that ${PRODUCT_BRAND} Measured" \
+             "Launch should be configured but SRK is not set to the" \
+             "'well-known secret'. Clear your TPM through your system BIOS" \
+             "administrative interface." >&2
+        exit ${Abort}
+    else
+        DIALOGRC="${DIALOG_WARN_RC}" \
+            dialog --colors --yes-label "Reboot" --no-label "Continue" --yesno \
+"The SRK in your TPM is already set, but
+not to the required \Zbwell-known secret\ZB.
+\n\n
+${PRODUCT_BRAND} Measured Launch cannot be
+configured with the TPM in this state.
+\n\n
+You must clear the TPM through your BIOS
+interface:\n\n
+ 1. \ZbReboot\ZB and enter the BIOS configuration.\n
+ 2. Clear the TPM.\n
+ 3. \ZbPower OFF the machine completely.\ZB
+\n\n
+You may also \ZbContinue\ZB the installation with
+${PRODUCT_BRAND} Measured Launch disabled." 19 51
+        case $? in
+            1) exit ${Continue} ;;
+            255) exit ${Previous} ;;
+            *) exit ${Abort} ;;
+        esac
+    fi
+else
+    exit ${Continue}
+fi

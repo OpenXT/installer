@@ -1,0 +1,88 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${SCRIPT_DIR}/Functions/optical-media
+
+rm -f "${DETECT_REPO_CONF}"
+
+not_previous || exit ${Previous}
+
+if answerfile_specifies "source" ; then
+    : > "${DETECT_REPO_CONF}"
+    exit ${Continue}
+fi
+
+if interactive ; then
+    dialog --infobox "\n\nDetecting repository location..." 7 40
+fi
+
+DETECTED_REPO_COUNT=0
+DETECTED_REPO_SOURCE=""
+
+modprobe iscsi_ibft >/dev/null 2>&1
+IBFT_TARGET="/sys/firmware/ibft/target0"
+
+if [ -d "${IBFT_TARGET}" ] ; then
+     DETECTED_REPO_COUNT=$((DETECTED_REPO_COUNT+1))
+     DETECTED_REPO_SOURCE="iSCSI"
+     echo "iBFT detected.">&2
+fi
+
+for BLOCK in /sys/block/${DEFAULT_USB_DEVICE}* ; do
+    DEV=$(basename "${BLOCK}")
+    if /lib/udev/path_id "/block/${DEV}" | egrep -q ".*-usb-.*" ; then
+        for i in /dev/${DEV}* ; do
+            do_mount -o ro ${i} ${TEMP_USB_MOUNT} >&2 || continue
+
+            if [ -d "${TEMP_USB_MOUNT}/${PACKAGES_DOT_MAIN}" ] ; then
+                DETECTED_REPO_COUNT=$((DETECTED_REPO_COUNT+1))
+                DETECTED_REPO_SOURCE="USB"
+                echo "USB dev with XC image detected - ${i}">&2
+                 
+                if [ "${i}" = "/dev/${DEV}" ] ; then
+                    do_umount "${TEMP_USB_MOUNT}" >&2
+                    break
+                fi
+            fi
+
+            do_umount "${TEMP_USB_MOUNT}" >&2
+        done
+    fi
+done
+
+DEVICES=$(list_cdrom_devices)
+for DEV in ${DEVICES} ; do
+    if dev_provides_repo "${DEV}" "${PACKAGES_DOT_MAIN}" ; then
+        DETECTED_REPO_COUNT=$((DETECTED_REPO_COUNT + 1))
+        echo "CD with XC image detected - ${DEV}">&2
+        DETECTED_REPO_SOURCE="CD-ROM"
+    fi
+done
+
+if [ "${DETECTED_REPO_COUNT}" != 1 ] ; then
+    DETECTED_REPO_SOURCE=
+fi
+
+cat <<EOF > "${DETECT_REPO_CONF}"
+DETECTED_REPO_COUNT=${DETECTED_REPO_COUNT}
+DETECTED_REPO_SOURCE='${DETECTED_REPO_SOURCE}'
+EOF
+
+exit ${Continue}

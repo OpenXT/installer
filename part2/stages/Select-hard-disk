@@ -1,0 +1,122 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+# ^^^ sets ${DISK_CONF}
+
+check_disk_size()
+{
+    local DISK="$1"
+
+    local DISK_SIZE=$(cat /sys/block/${DISK}/size 2>/dev/null)
+    [ ! -z "${DISK_SIZE}" ] || exit ${Abort}
+
+    # Use bc since the values may be outside the range of a 32-bit integer.
+    bc_greater_or_equal "${DISK_SIZE}" "${MIN_DISK_SECTORS}"
+}
+
+if answerfile_specifies "primary-disk" ; then
+    DISK=$(read_xml_tag "${ANSWERFILE}" "primary-disk")
+    [ ! -z "${DISK}" ] || exit ${Abort}
+    [ -b "/dev/${DISK}" ] || exit ${Abort}
+    check_disk_size "${DISK}" || exit ${Abort}
+else
+
+    # Step 1: get the list of available hard disks
+    DISKS=$(ls /sys/block | egrep -v '(^dm-|^loop|^ram|^sr|^scd|^tapdev|[0-9]$)')
+
+    # Step 2: filter the list of disks to those of sufficient size
+    FILTERED_DISKS=""
+    FILTERED_DISK_COUNT=0
+    for DISK in ${DISKS} ; do
+        MODEL=$(cat /sys/block/${DISK}/device/model)
+        if [ ! -z "${MODEL% }" ] && grep -q "^${MODEL% }$" "${DISK_MODEL_BLACKLIST}" ; then
+            continue
+        fi
+        check_disk_size "${DISK}" || continue
+        # Skip if the disk is mounted (usb install)
+        { mount | grep -q "${DISK}"; } && continue
+
+        # Disk is big enough, so append to the list:
+        FILTERED_DISKS="${FILTERED_DISKS=}${FILTERED_DISKS:+ }${DISK}"
+        FILTERED_DISK_COUNT=$(( FILTERED_DISK_COUNT + 1 ))
+    done
+
+    # If no disks found, abort installation
+    # If one disk found, select and continue without prompt
+    # If multiple disks found, offer user the choice
+
+    case ${FILTERED_DISK_COUNT} in
+    0)
+        if interactive ; then
+            dialog --msgbox "No suitable hard disk found.
+
+Please check in your BIOS configuration that the SATA
+controller is set up to use AHCI mode.
+
+" 0 0
+        fi
+        echo "No suitable hard disk found">&2
+        exit ${Abort}
+        ;;
+    1)
+        # In the single disk interactive case, there's no interaction,
+        # so if stepping backwards, step backwards out of here.
+        not_previous || exit ${Previous}
+
+        DISK="${FILTERED_DISKS}"
+        break
+        ;;
+    *)
+        if ! interactive ; then
+            echo "Multiple suitable hard disks found and answerfile omits <primary-disk>">&2
+            exit ${Abort}
+        fi
+
+        ARG=""
+        for DEV in ${FILTERED_DISKS} ; do
+            MODEL=$(cat /sys/block/${DEV}/device/model)
+            RAW_SIZE=$(cat /sys/block/${DEV}/size)
+            SIZE=$(pretty_size ${RAW_SIZE})
+            ARG="${ARG}${ARG:+ }${DEV} \"${SIZE} ${MODEL}\""
+        done
+        CAPTURE=$(mktemp -t)
+        echo ${ARG} | xargs dialog --ok-label Select --cancel-label Previous --menu "Select hard disk for installation" 0 0 0 2>${CAPTURE}
+        OPT="$?"
+
+        if [ "${OPT}" != 0 ] ; then
+            rm -f ${CAPTURE}
+            [ ${OPT} != 1 ]   || exit ${Previous}
+            [ ${OPT} != 123 ] || exit ${Previous}
+            [ ${OPT} != 124 ] || exit ${Previous}
+            [ ${OPT} != 255 ] || exit ${Previous}
+            exit ${Abort}
+        fi
+
+        # Read the selection
+        DISK=$(cat ${CAPTURE} 2>/dev/null)
+        rm -f ${CAPTURE}
+        ;;
+
+    esac
+fi
+
+echo "TARGET_DISK='${DISK}'" >${DISK_CONF}
+
+exit ${Continue}

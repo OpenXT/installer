@@ -1,0 +1,207 @@
+#!/bin/ash
+#
+# Copyright (c) 2014 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${SCRIPT_DIR}/Functions/install-main
+
+. ${REPOSITORY_CONF}
+# ^^^ defines REPOSITORY_VERSION, REPOSITORY_RELEASE and UPGRADEABLE_RELEASES
+
+# mode: fresh | upgrade
+
+unset MODE
+rm -f "${INSTALL_MODE_CONF}"
+rm -f "${EXISTING_CONF}"
+
+detect_prior_installation()
+{
+    do_cmd vgs xenclient >&2 || return
+
+    # read the version information from the detected filesystem:
+    mount_existing_dom0 "${EXISTING_DOM0_MOUNT}"
+    local EXISTING_VERSION_FILE="${EXISTING_DOM0_MOUNT}/etc/xenclient.conf"
+    EXISTING_VERSION="$(sed -ne 's/^version = //p' <${EXISTING_VERSION_FILE})"
+    EXISTING_RELEASE="$(sed -ne 's/^release = //p' <${EXISTING_VERSION_FILE})"
+    EXISTING_MEASURED_STATE="false"
+    mount_existing_boot "${EXISTING_DOM0_MOUNT}/boot/system"
+    [ -f "${EXISTING_DOM0_MOUNT}/boot/system/tpm/enabled" ] && EXISTING_MEASURED_STATE="true"
+    echo "prior install measured state is: ${EXISTING_MEASURED_STATE}" >&2
+    do_umount "${EXISTING_DOM0_MOUNT}/boot/system"
+    do_umount "${EXISTING_DOM0_MOUNT}"
+
+    echo "EXISTING_MEASURED_STATE='${EXISTING_MEASURED_STATE}'" >> ${EXISTING_CONF}
+    echo "EXISTING_RELEASE='${EXISTING_RELEASE}'" >> ${EXISTING_CONF}
+    echo "EXISTING_VERSION='${EXISTING_VERSION}'" >> ${EXISTING_CONF}
+}
+
+is_upgradeable_release()
+{
+    RELEASE="$1"
+    for CHECK in ${UPGRADEABLE_RELEASES} ; do
+
+        [ "${CHECK}" != "*" ] || return 0
+
+        if [ "${RELEASE}" = "${CHECK}" ] ; then
+            echo "Upgrade allowed from detected release: ${RELEASE}" >&2
+            return 0
+        fi
+    done
+    echo "Upgrade not allowed from detected release: ${RELEASE}" >&2
+    return 1
+}
+
+choose_upgrade_or_install()
+{
+    dialog --yes-label Upgrade \
+           --no-label "Fresh Install" \
+           --yesno \
+"An existing installation of ${PRODUCT_BRAND} ${EXISTING_VERSION} has been
+detected.
+\n\n
+Please choose whether to perform an upgrade or to erase the existing
+installation and perform a fresh install." 10 50
+
+    OPT=$?
+    if [ ${OPT} = 0 ] ; then
+        echo "INSTALL_MODE='upgrade'">"${INSTALL_MODE_CONF}"
+        exit ${Upgrade}
+    fi
+    if [ ${OPT} = 1 ] ; then
+        echo "INSTALL_MODE='fresh'">"${INSTALL_MODE_CONF}"
+        exit ${Install}
+    fi
+    [ ${OPT} != 255 ] || exit ${Previous}
+    exit ${Abort}
+}
+
+choose_refresh_or_reinstall_or_abort()
+{
+    dialog --colors \
+               --cancel-label "Abort" \
+               --ok-label "Refresh" \
+               --extra-button \
+               --extra-label "Erase and install" \
+               --yesno \
+"An existing installation of ${PRODUCT_BRAND} ${EXISTING_VERSION} has been
+detected.
+\n\n
+Please choose one option from this list. Do you wish to:
+\n
+\n  - \Z1R\Zn\Zbefresh\ZB the existing installation
+\n  - \Z1E\Zn\Zbrase\ZB the existing installation and perform a new install
+\n  - \Z1A\Zn\Zbbort\ZB this install?" 11 70
+
+    OPT=$?
+    [ ${OPT} -ne 255 ] || exit ${Previous}
+    if [ ${OPT} -eq 0 ] ; then
+        # "Refresh"
+        echo "INSTALL_MODE='upgrade'">"${INSTALL_MODE_CONF}"
+        exit ${Upgrade}
+    elif [ ${OPT} -eq 3 ] ; then
+        # "Erase and install"
+        echo "INSTALL_MODE='fresh'">"${INSTALL_MODE_CONF}"
+        exit ${Install}
+    fi
+    exit ${Abort}
+}
+
+confirm_erase_old_version()
+{
+    dialog --colors \
+           --yes-label "Abort" \
+           --no-label "Fresh install" \
+           --yesno \
+"An existing installation of ${PRODUCT_BRAND} ${EXISTING_VERSION} has been
+detected.
+\n\n
+\ZbUpgrading directly from this version to ${PRODUCT_BRAND}
+${REPOSITORY_VERSION} is not supported!\ZB
+\n\n
+You may be able to upgrade by using a different version of ${PRODUCT_BRAND}
+newer than ${EXISTING_VERSION} as an intermediate step. To do so, you should
+\Zbabort this installation\ZB now.
+\n\n
+Alternatively, do you wish to \Zberase the existing installation\ZB and perform
+a fresh install?" 17 55
+
+    OPT=$?
+    [ ${OPT} != 0 ] || exit ${Abort}
+    if [ ${OPT} = 1 ] ; then
+        echo "INSTALL_MODE='fresh'">"${INSTALL_MODE_CONF}"
+        exit ${Install}
+    fi
+    [ ${OPT} != 255 ] || exit ${Previous}
+    exit ${Abort}
+}
+
+do_cmd vgscan --mknodes >&2
+do_cmd vgchange -a y >&2
+
+detect_prior_installation
+
+if answerfile_specifies "mode" ; then
+    not_previous || exit ${Previous}
+
+    MODE=$(read_xml_tag "${ANSWERFILE}" "mode")
+
+    case "${MODE}" in
+
+    fresh)
+        echo "INSTALL_MODE='${MODE}'">"${INSTALL_MODE_CONF}"
+        exit ${Install}
+        ;;
+
+    upgrade)
+        if is_upgradeable_release "${EXISTING_RELEASE}" || \
+           [ "${EXISTING_RELEASE}" = "${REPOSITORY_RELEASE}" ] ; then
+            echo "INSTALL_MODE='${MODE}'">"${INSTALL_MODE_CONF}"
+            exit ${Upgrade}
+        else
+            exit ${Abort}
+        fi
+        ;;
+
+    *)
+        echo "Answerfile specifies unrecognised <mode> item: ${MODE} : aborting.">&2
+        exit ${Abort}
+        ;;
+    esac
+
+else
+    if ! interactive ; then
+        echo "Answerfile is missing <mode> item: aborting.">&2
+        exit ${Abort}
+    fi
+
+    if [ "${EXISTING_RELEASE}" ] ; then
+        if is_upgradeable_release "${EXISTING_RELEASE}" ; then
+            choose_upgrade_or_install
+        elif [ "${EXISTING_RELEASE}" = "${REPOSITORY_RELEASE}" ] ; then
+            choose_refresh_or_reinstall_or_abort
+        else
+            confirm_erase_old_version
+        fi
+    else
+        not_previous || exit ${Previous}
+        echo "INSTALL_MODE='fresh'">"${INSTALL_MODE_CONF}"
+        exit ${Install}
+    fi
+fi
+
+exit ${Abort}

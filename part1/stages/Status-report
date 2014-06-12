@@ -1,0 +1,172 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+# Interactive case:
+# - run status-report
+# - offer to run a web server for easy access
+#
+# Non-interactive case:
+# - is there a point?
+interactive || exit ${Continue}
+
+# Check for the presence of the tool:
+if ! which status-report >/dev/null 2>/dev/null ; then
+    exit ${Abort}
+fi
+
+echo 'Please describe the install problem here:
+
+
+Installation error on '"$(date)" >/tmp/install-fail.txt
+show_cursor
+dialog --no-cancel --editbox /tmp/install-fail.txt 15 70 2>${INSTALL_DATA}/user-comment.txt
+hide_cursor
+
+# Eventually remounts required file systems read-only to recover logs
+do_cmd vgscan --mknodes >&2
+do_cmd vgchange -a y >&2
+
+mkdir -p ${STATUS_MOUNT}
+while true; do
+    # Mount boot
+    [ ! -r /dev/xenclient/boot ] && break
+    do_mount -o ro /dev/xenclient/boot ${STATUS_MOUNT}/boot/system || break
+    STEPS="umount_boot,"
+
+    # Mount storage
+    [ ! -r /dev/xenclient/storage ] && break
+    do_mount -o ro /dev/xenclient/storage ${STATUS_MOUNT}/storage || break
+    STEPS="umount_storage,${STEPS}"
+
+    # Mount/unlock locked partitions
+    [ ! -r /dev/xenclient/config ] && break
+    if [ ! -r /dev/mapper/config ]; then
+        CAPTURE=$(mktemp -t)
+        while true; do
+            dialog --cancel-label Skip --insecure --passwordbox \
+                "Please provide former installation password" 0 50 "" 2> ${CAPTURE}
+            OPT="$?"
+            if [ ${OPT} != 0 ] ; then
+                rm -f ${CAPTURE}
+                [ ${OPT} != 1 ]   || SKIP=1 && break
+                [ ${OPT} != 255 ] || SKIP=1 && break
+                exit ${Abort}
+            fi
+            PRIVATE_KEY=${STATUS_MOUNT}/boot/system/config/recovery-private-key.conf
+            DISK_KEY_SSL=${STATUS_MOUNT}/boot/system/config/recovery-disk-key.ssl
+            cat ${CAPTURE} | \
+                do_cmd openssl rsautl -decrypt -inkey ${PRIVATE_KEY} \
+                -in ${DISK_KEY_SSL} -passin stdin | \
+                do_cmd cryptsetup -q -d - luksOpen /dev/xenclient/config config || {
+                rm -f ${CAPTURE}
+                continue
+            }
+            SKIP=0 && break
+        done
+        rm -f ${CAPTURE}
+        [ $SKIP -eq 1 ] && break
+        STEPS="close_config,${STEPS}"
+    fi
+
+    echo "SKIP: $SKIP" >&2
+
+    do_mount -o ro /dev/mapper/config ${STATUS_MOUNT}/config || break
+    STEPS="umount_config,${STEPS}"
+
+    if [ -r /dev/xenclient/log ]; then
+        if [ ! -r /dev/mapper/log ]; then
+            do_cmd cryptsetup -q -d ${STATUS_MOUNT}/config/keys/log-lv.key \
+                create log /dev/xenclient/log || break
+            STEPS="close_log,${STEPS}"
+        fi
+
+        do_mount -o ro /dev/mapper/log ${STATUS_MOUNT}/var/log || break
+        STEPS="umount_log,${STEPS}"
+    fi
+
+    if [ -r /dev/xenclient/cores ]; then
+        if [ ! -r /dev/mapper/cores ]; then
+            do_cmd cryptsetup -q -d ${STATUS_MOUNT}/config/keys/cores-lv.key \
+                create cores /dev/xenclient/cores || break
+            STEPS="close_cores,${STEPS}"
+        fi
+
+        do_mount -o ro /dev/mapper/cores ${STATUS_MOUNT}/var/cores || break
+        STEPS="umount_cores,${STEPS}"
+    fi
+    break # No this is not a real loop ...
+done
+
+# Acknowledge the user input received and inform that the tool is running:
+dialog --infobox "\nGenerating report..." 5 25
+
+# Run the tool, get the name of the output file:
+REPORT=$(do_cmd status-report | sed -ne 's/^Writing tarball \(.*\) successful.$/\1/p')
+if [ -z "${REPORT}" ] || [ ! -e "${REPORT}" ] ; then
+    exit ${Abort}
+fi
+echo "${REPORT}">${STATUS_REPORT_CONF}
+
+# Umount/lock every partition used for status-report purpose
+OIFS=${IFS}
+IFS=","
+for i in $STEPS; do
+    case $i in
+        umount_cores)
+            do_umount ${STATUS_MOUNT}/var/cores
+            ;;
+        close_cores)
+            do_cmd cryptsetup remove /dev/xenclient/cores
+            ;;
+        umount_log)
+            do_umount ${STATUS_MOUNT}/var/log
+            ;;
+        close_log)
+            do_cmd cryptsetup remove /dev/xenclient/log
+            ;;
+        umount_config)
+            do_umount ${STATUS_MOUNT}/config
+            ;;
+        close_config)
+            do_cmd cryptsetup luksClose /dev/mapper/config
+            ;;
+        umount_storage)
+            do_umount ${STATUS_MOUNT}/storage
+            ;;
+        umount_boot)
+            do_umount ${STATUS_MOUNT}/boot/system
+            ;;
+    esac
+done
+IFS=${OIFS}
+
+# Let the user know:
+dialog --colors --yes-label Continue --no-label "Web Server" --yesno '\n Generated status report:\n\n
+'" \Zb${REPORT}\ZB"'
+\n\n To download this status report onto another machine with a browser
+\n choose the <\ZbWeb Server\ZB> option below.
+\n\n To access a command prompt, press \Zb[Alt]\ZB+\Zb[F3]\ZB and log in as: \Zbroot\ZB
+\n\n To continue, choose the <\ZbContinue\ZB> option below.
+' 16 73
+OPT=$?
+[ "${OPT}" != "0" ]   || exit ${Continue}
+[ "${OPT}" != "1" ]   || exit ${StatusServer}
+exit ${Abort} # No Previous option here.

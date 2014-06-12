@@ -1,0 +1,147 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+configure_static_ip()
+{
+    . ${NETWORK_NIC_CONF} # defines ${NIC}
+
+    rm -f "${NETWORK_STATUS_CONF}"
+
+    # FIXME:
+    echo "FIXME: read default static IP config from kernel cmdline">&2
+
+    # Defaults:
+    STATIC_IP="0.0.0.0"
+    NETMASK="255.255.255.255"
+    GATEWAY="0.0.0.0"
+    DNS="127.0.0.1"
+
+    #-----------------------------------------------------------
+    # Answerfile handling or invoke interactive prompt
+    #-----------------------------------------------------------
+
+    PROMPT_USER=0 # assume yes
+
+    if answerfile_specifies "network-interface" ; then
+        # either interactive user chose 'static', or the answerfile specified it.
+
+        ANS_STATIC_IP=$(read_xml_attr "${ANSWERFILE}" "network-interface" "address")
+          ANS_NETMASK=$(read_xml_attr "${ANSWERFILE}" "network-interface" "netmask")
+          ANS_GATEWAY=$(read_xml_attr "${ANSWERFILE}" "network-interface" "gateway")
+              ANS_DNS=$(read_xml_attr "${ANSWERFILE}" "network-interface" "dns")
+
+        # TODO: sanity check the data
+        [ -z "${ANS_STATIC_IP}" ] || STATIC_IP="${ANS_STATIC_IP}"
+        [ -z "${ANS_NETMASK}" ]   || NETMASK="${ANS_NETMASK}"
+        [ -z "${ANS_GATEWAY}" ]   || GATEWAY="${ANS_GATEWAY}"
+        [ -z "${ANS_DNS}" ]       || GATEWAY="${ANS_DNS}"
+
+        if [ ! -z "${ANS_STATIC_IP}" ] && [ ! -z "${ANS_NETMASK}" ] && 
+           [ ! -z "${ANS_GATEWAY}" ]   && [ ! -z "${DNS}" ] ; then
+            PROMPT_USER=1 # no
+        fi
+
+    fi
+
+    if [ ${PROMPT_USER} -eq 0 ] ; then
+        if ! interactive ; then
+            echo "Answerfile <network-interface> is missing static IP configuration: aborting.">&2
+            return ${Abort}
+        fi
+
+        do_interactive_static_ip
+        OPT=$?
+        [ ${OPT} -ne ${Continue} ] && return ${OPT}
+    fi
+
+    #-----------------------------------------------------------
+    # Apply the configuration:
+    #-----------------------------------------------------------
+
+    ifdown -a >&2
+
+    echo >/etc/network/interfaces "# Configure loopback
+auto lo
+iface lo inet loopback
+# Configure ${NIC}
+auto ${NIC}
+iface ${NIC} inet static
+address ${STATIC_IP}
+netmask ${NETMASK}
+gateway ${GATEWAY}"
+
+    echo "search home
+nameserver ${DNS}" >/etc/resolv.conf
+
+    ifup -a >&2
+
+    # FIXME:
+    # Verify the configuration has succeeded:
+
+    echo "NETWORK_ENABLED='True'"> "${NETWORK_STATUS_CONF}"
+    return ${Continue}
+}
+
+do_interactive_static_ip()
+{
+    while [ 1 ] ; do
+        CAPTURE=$(mktemp -t)
+        TITLE="Select item to edit or Continue:"
+        ARG="Address: \"${STATIC_IP}\" Netmask: \"${NETMASK}\" Gateway: \"${GATEWAY}\" DNS: \"${DNS}\"" 
+        dialog --cancel-label Continue --ok-label Edit --menu "${TITLE}" 7 40 0 ${ARG} 2>${CAPTURE}
+        OPT="$?"
+        if [ "${OPT}" = 0 ] ; then
+            DUMMY=1 # no-op
+        elif [ "${OPT}" = 1 ] ; then
+            return ${Continue} # editting complete
+        elif [ "${OPT}" = 255 ] ; then
+            return ${Previous}
+        else
+            return ${Abort}
+        fi
+        ITEM=$(cat ${CAPTURE} 2>/dev/null)
+        echo "${ITEM}"
+        rm -f ${CAPTURE}
+
+        case "${ITEM}" in
+        Address:)
+                do_edit_item "${ITEM}" "${STATIC_IP}" || return ${Abort}
+                STATIC_IP="${VALUE}"
+            ;;
+        Netmask:)
+                do_edit_item "${ITEM}" "${NETMASK}" || return ${Abort}
+                NETMASK="${VALUE}"
+            ;;
+        Gateway:)
+                do_edit_item "${ITEM}" "${GATEWAY}" || return ${Abort}
+                GATEWAY="${VALUE}"
+            ;;
+        DNS:)
+                do_edit_item "${ITEM}" "${DNS}" || return ${Abort}
+                DNS="${VALUE}"
+            ;;
+        esac
+    done
+}
+
+configure_static_ip
+OPT=$?
+exit ${OPT}

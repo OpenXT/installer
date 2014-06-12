@@ -1,0 +1,926 @@
+#!/bin/ash
+#
+# Copyright (c) 2014 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+mk_xc_lvm()
+{
+    local PARTITION_DEV="$1"
+    do_cmd pvcreate -ff -y "${PARTITION_DEV}" || return 1
+    do_cmd vgcreate xenclient "${PARTITION_DEV}" || return 1
+    do_cmd lvcreate --name boot     --size  12M /dev/xenclient || return 1
+    do_cmd lvcreate --name config   --size  12M /dev/xenclient || return 1
+    do_cmd lvcreate --name root     --size ${DOM0_ROOT_LV_SIZE} \
+                                                /dev/xenclient || return 1
+    do_cmd lvcreate --name root.new --size ${DOM0_ROOT_LV_SIZE} \
+                                                /dev/xenclient || return 1
+    do_cmd lvcreate --name swap     --size 256M /dev/xenclient || return 1
+    do_cmd lvcreate --name log      --size  64M /dev/xenclient || return 1
+    do_cmd lvcreate --name cores    --size  64M /dev/xenclient || return 1
+    do_cmd lvcreate --name storage -l +100%FREE  /dev/xenclient || return 1
+    do_cmd lvresize -f /dev/xenclient/storage -L-1G || return 1
+
+    do_cmd vgscan --mknodes || return 1
+    do_cmd vgchange -a y || return 1
+}
+
+apply_xc_packages()
+{
+    local APPLY_MODE="$1"
+    local PACKAGES_DIR="$2"
+
+    dom0_uivm_ndvm_and_files()
+    {
+        local PACKAGE_FILE="${PACKAGES_DIR}/${FILENAME}"
+
+        case "${COMPONENT}" in
+            dom0)
+                case "${APPLY_MODE}" in
+                    install)
+                        install_dom0 "${PACKAGE_FILE}" "${PACKAGE_TYPE}"
+                        ;;
+                    upgrade)
+                        upgrade_dom0 "${PACKAGE_FILE}" "${PACKAGE_TYPE}"
+                        ;;
+                    *)
+                        false
+                        ;;
+                esac
+                ;;
+            uivm)
+                mixedgauge "Installing ${UIVM_BRAND} (please wait)..." 50
+                install_uivm "${PACKAGE_FILE}" "${PACKAGE_TYPE}"
+                ;;
+            ndvm)
+                mixedgauge "Installing ${NDVM_BRAND} (please wait)..." 65
+                install_ndvm "${PACKAGE_FILE}" "${PACKAGE_TYPE}"
+                ;;
+            syncvm)
+                mixedgauge "Installing ${SYNCVM_BRAND} (please wait)..." 80
+                install_syncvm "${PACKAGE_FILE}" "${PACKAGE_TYPE}"
+                ;;
+            file)
+                install_file "${PACKAGE_FILE}" "${DESTINATION}"
+                ;;
+            exec)
+                # FIXME - revisit this.
+                #
+                # If the upgrade fails, the current installation should be left
+                # untouched, so any changes which affect it ought to be
+                # deferred until commit_xc_packages.
+                #
+                # For example, if this executable makes changes in /, this will
+                # only affect the new installation, but if it makes changes in
+                # /storage, this could also affects the current installation.
+                exec_install_file "${APPLY_MODE}" "${PACKAGE_TYPE}" \
+                    "${PACKAGE_FILE}" "${DESTINATION}"
+                ;;
+            driverexec|control)
+                true # no-op at this point
+                ;;
+            *)
+                false
+                ;;
+        esac
+        if [ "$?" -ne 0 ] ; then
+            echo "ERROR: Failure installing ${COMPONENT} with file ${FILENAME}.">&2
+            return 1
+        fi
+    }
+
+    # Iterate over the install packages, looking for a handler for each one:
+    iterate_over_packages "${PACKAGES_DIR}" dom0_uivm_ndvm_and_files || return "$?"
+
+    return 0
+}
+
+commit_xc_packages()
+{
+    local PACKAGES_DIR="$1"
+
+    dom0_uivm_ndvm_and_files()
+    {
+        local PACKAGE_FILE="${PACKAGES_DIR}/${FILENAME}"
+
+        case "${COMPONENT}" in
+            dom0)
+                commit_dom0
+                ;;
+            uivm)
+                commit_uivm
+                ;;
+            ndvm)
+                commit_ndvm
+                ;;
+            syncvm)
+                commit_syncvm
+                ;;
+            file)
+                commit_file "${DESTINATION}"
+                ;;
+            exec)
+                # FIXME - revisit this - see comment in apply_xc_packages.
+                true
+                ;;
+            driverexec|control)
+                true # no-op at this point
+                ;;
+            *)
+                false
+                ;;
+        esac
+
+        if [ "$?" -ne 0 ] ; then
+            echo "ERROR: Failure committing ${COMPONENT} with file ${FILENAME}.">&2
+            return 1
+        fi
+    }
+
+    # Iterate over the install packages, looking for a handler for each one:
+    iterate_over_packages "${PACKAGES_DIR}" dom0_uivm_ndvm_and_files || return "$?"
+
+    return 0
+}
+
+install_dom0()
+{
+    local DOM0_ROOTFS="$1"
+    local ROOTFS_TYPE="$2"
+
+    mixedgauge "Creating disk volumes..." ${PERCENT}
+    PERCENT=$((PERCENT + 10))
+    mk_xc_lvm /dev/${XC_PARTITION} >&2 || return 1
+
+    mixedgauge "Writing filesystem..." ${PERCENT}
+    PERCENT=$((PERCENT + 10))
+    write_rootfs ${DOM0_ROOTFS} ${ROOTFS_TYPE} ${ROOT_DEV}.new >&2 || return 1
+
+    mixedgauge "Formatting storage..." ${PERCENT}
+    PERCENT=$((PERCENT + 10))
+    # do_cmd doesn't do pipes -- what's wrong with set -x ?
+    set -x
+    # Dealing with encrypted partitions
+    # config
+    # Generate random config key.
+    openssl rand -out ${CONFIG_KEY} 128 2>/dev/null
+    # Initialize config's luks header with previous key.
+    cryptsetup -q -S 7 -i 1 luksFormat /dev/xenclient/config ${CONFIG_KEY} >&2 || return 1
+    # Adds get-config-key result to keys in config's luks header.
+    local GCK=`mktemp -t`
+    get-config-key > ${GCK}
+    # FIXME: iteration time will have to be different between kent and non-kent
+    cryptsetup -q -i 100 -d ${CONFIG_KEY} luksAddKey /dev/xenclient/config ${GCK} || {
+        rm -f ${GCK}
+        set +x
+        return 1
+    }
+    rm -f ${GCK}
+    # Create an encrypted config's random key if possible.
+    [ -r ${RECOVERY_PUBLIC_KEY_CONF} ] && {
+	openssl rsautl -encrypt -inkey ${RECOVERY_PUBLIC_KEY_CONF} -pubin \
+	    -in ${CONFIG_KEY} -out ${RECOVERY_DISK_KEY_SSL}
+    }
+    # Open config lv.
+    cryptsetup -q -d ${CONFIG_KEY} luksOpen /dev/xenclient/config config >&2 || {
+        set +x
+        return 1
+    }
+    rm -f ${CONFIG_KEY}
+    # log
+    do_cmd mkdir -p -m 500 /tmp/keys
+    openssl rand -out ${LOG_KEY} 128 2> /dev/null &&
+    cryptsetup -q -d ${LOG_KEY} create log /dev/xenclient/log >&2 || {
+        set +x
+        return 1
+    }
+    # cores
+    openssl rand -out ${CORES_KEY} 128 2> /dev/null &&
+    cryptsetup -q -d ${CORES_KEY} create cores /dev/xenclient/cores >&2 || {
+        set +x
+        return 1
+    }
+    set +x
+    # device key (used to tie encrypted disks to this host)
+    openssl rand -out ${DEVICE_KEY} 128 2> /dev/null
+
+    do_cmd mke2fs -j /dev/xenclient/boot                    >&2 || return 1
+    do_cmd mkfs.ext3 -q /dev/mapper/config                  >&2 || return 1
+    do_cmd mkfs.ext4 -N 65536 -q /dev/xenclient/storage     >&2 || return 1
+    do_cmd mkfs.ext3 -q /dev/mapper/log                     >&2 || return 1
+    do_cmd mkfs.ext3 -q /dev/mapper/cores                   >&2 || return 1
+
+    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/xenclient/boot      >&2 || return 1
+    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/mapper/config       >&2 || return 1
+    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/xenclient/storage   >&2 || return 1
+    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/mapper/log          >&2 || return 1
+    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/mapper/cores        >&2 || return 1
+
+    mount_dom0 "${ROOT_DEV}.new" || return 1
+    do_mount /dev/mapper/log    ${DOM0_MOUNT}/var/log       >&2 || return 1
+    do_mount /dev/mapper/cores  ${DOM0_MOUNT}/var/cores     >&2 || return 1
+
+    # mount config and copy dom0 /config
+    do_mount /dev/mapper/config ${TEMP_CONFIG_MOUNT}        >&2 || return 1
+    do_cmd rsync --archive --xattrs \
+        ${DOM0_MOUNT}/config/ ${TEMP_CONFIG_MOUNT}          >&2 || return 1
+    do_mount --move ${TEMP_CONFIG_MOUNT} \
+        ${DOM0_MOUNT}/config                                >&2 || return 1
+
+    # Write keys in /config
+    do_cmd mkdir -p -m 500 ${DOM0_MOUNT}/config/keys        >&2 || return 1
+    do_cmd cp -f ${LOG_KEY} ${DOM0_MOUNT}/config/keys       >&2 || return 1
+    do_cmd cp -f ${CORES_KEY} ${DOM0_MOUNT}/config/keys     >&2 || return 1
+    do_cmd mkdir -p -m 500 ${DOM0_MOUNT}/config/sec         >&2 || return 1
+    do_cmd cp -f ${DEVICE_KEY} ${DOM0_MOUNT}/config/sec     >&2 || return 1
+
+    # Reserve 4GB on storage
+    do_cmd falloc ${DOM0_MOUNT}/storage/xc-reserved 4096    >&2 || return 1
+
+    do_cmd mkdir ${DOM0_MOUNT}/storage/disks                >&2 || return 1
+    do_cmd mkdir ${DOM0_MOUNT}/storage/import               >&2 || return 1
+
+    if [ -f "${PASSWORD_DEFERRED}" ]; then
+        touch ${DOM0_MOUNT}/config/deferred_dom0_password || return 1
+    fi
+
+    [ -r "${PASSWORD_HASH}" ] || return 1
+    sed -i "s|^root:[^:]*|root:$(cat ${PASSWORD_HASH})|" \
+	${DOM0_MOUNT}/config/etc/shadow || return 1
+
+    # do firstboot
+    touch ${DOM0_MOUNT}/boot/system/firstboot
+
+    if [ "${MEASURE_LAUNCH}" = "true" ]; then
+        mixedgauge "Configuring Measured Launch... Press random keys to speed up the sealing process." ${PERCENT}
+        configure_measured_launch "${DOM0_MOUNT}" || return 1
+        mixedgauge "Keying material generated successfully..." ${PERCENT}
+
+        quirk_fix "${DOM0_MOUNT}"
+        [ $? -ne 0 ] && {
+            echo "A quirk \"fix\" script failed." >&2
+            return 1
+        }
+    fi
+
+    # initialize SELinux policy and label mount points in dom0
+    do_cmd selinux_mount_setfiles ${DOM0_MOUNT} \
+                                  /config \
+                                  /var/log \
+                                  /var/cores || return 1
+}
+
+upgrade_dom0()
+{
+    # Warning: A failed upgrade must leave the system untouched, so it is
+    # important that the commands in this function do not affect the existing
+    # installation.
+
+    local DOM0_ROOTFS="$1"
+    local ROOTFS_TYPE="$2"
+
+    if lv_in_use "${ROOT_DEV}.old" ; then
+        # Catch this problem now, as it would otherwise cause a failure while
+        # committing. (For debugging puposes only, to avoid rebooting before a
+        # repeated upgrade:
+        #     lvremove -f /dev/xenclient/root
+        #     lvrename /dev/xenclient/root.old /dev/xenclient/root )
+        echo "ERROR: Device ${ROOT_DEV}.old still in use." \
+             "(Has the system been rebooted since the last upgrade?)" >&2
+        return 1
+    fi
+
+    do_cmd lvremove -f ${ROOT_DEV}.new >&2
+    do_cmd lvremove -f ${ROOT_DEV}.old >&2
+
+    mixedgauge "Upgrading filesystem..." ${PERCENT}
+    PERCENT=$((PERCENT + 30))
+    do_cmd lvcreate --name `basename ${ROOT_DEV}.new` \
+        --size ${DOM0_ROOT_LV_SIZE} `dirname ${ROOT_DEV}.new` >&2 || return 1
+    write_rootfs ${DOM0_ROOTFS} ${ROOTFS_TYPE} ${ROOT_DEV}.new >&2 || {
+        do_cmd lvremove -f ${ROOT_DEV}.new >&2
+        return 1
+    }
+    do_cmd sync >&2
+
+    # Mount dom0's rootfs.
+    mount_dom0 "${ROOT_DEV}.new" || return 1
+
+    # do firstboot
+    touch ${DOM0_MOUNT}/boot/system/firstboot
+
+    # SELinux hack: load policy from new dom0
+    do_cmd selinux_init ${DOM0_MOUNT} || return 1
+}
+
+lv_in_use()
+{
+    local DEV="$1"
+
+    local OPEN_COUNT="$(lvdisplay -c ${DEV} | cut -f6 -d:)" 
+
+    [ "${OPEN_COUNT:-0}" -gt 0 ]
+}
+
+commit_dom0()
+{
+    # Warning: A failed upgrade must leave the system untouched, so it is
+    # important that the commands in this function do not fail. If they fail,
+    # the system may be left in a broken state.
+
+    do_cmd lvremove -f "${ROOT_DEV}.old" >&2
+
+    do_cmd lvrename "${ROOT_DEV}" "${ROOT_DEV}.old" >&2 || return 1
+    do_cmd lvrename "${ROOT_DEV}.new" "${ROOT_DEV}" >&2 || {
+        do_cmd lvrename "${ROOT_DEV}.old" "${ROOT_DEV}" >&2
+        return 1
+    }
+
+    mount_dom0 "${ROOT_DEV}" || return 1
+
+    do_cmd mkdir -p ${DOM0_MOUNT}/storage/disks || return 1
+
+    install_bootloader_from_dom0fs || return 1
+
+    if [ "${MEASURE_LAUNCH}" = "true" ]; then
+        own_tpm || return 1
+    fi
+
+    # handle refresh cases & measured launch misery
+    if [ "${INSTALL_MODE}" = "upgrade" ]; then
+        echo "commit_dom0: we're doing an upgrade" >&2
+        mount_config || return 1
+        is_mounted ${DOM0_MOUNT}/config
+        if [ $? -eq 1 ]; then
+            echo "commit_dom0: ${DOM0_MOUNT}/config is mounted" >&2
+            echo "commit_dom0: touching rehash-vms" >&2
+            touch ${DOM0_MOUNT}/config/rehash-vms
+            if [ "${EXISTING_MEASURED_STATE}" = "true" ]; then
+                echo "commit_dom0: /config is mounted, previously sealed: forcing reseal"
+                cryptsetup -q -d ${DOM0_MOUNT}/config/keys/config.key luksKillSlot \
+                    /dev/mapper/xenclient-config 0 >/dev/null 2>&1
+                get-config-key > /tmp/gck && cryptsetup -q -d ${DOM0_MOUNT}/config/keys/config.key \
+                    -S 0 -i 1 luksAddKey /dev/mapper/xenclient-config /tmp/gck >/dev/null 2>&1 \
+                    || exit 1
+                touch ${DOM0_MOUNT}/boot/system/tpm/setup >&2
+                touch ${DOM0_MOUNT}/boot/system/tpm/clear-config-key >&2
+            fi
+        fi
+    fi
+
+    # Selinux hack.
+    do_cmd selinux_mount_setfiles ${DOM0_MOUNT} \
+                                  /boot/system \
+                                  /config \
+                                  /storage || return 1
+}
+
+mount_dom0()
+{
+    local ROOT="$1"
+
+    do_mount -o ro ${ROOT} ${DOM0_MOUNT}                   || return 1
+    do_mount -o bind /proc ${DOM0_MOUNT}/proc              || return 1
+    do_mount -o bind /sys ${DOM0_MOUNT}/sys                || return 1
+    do_mount -o bind /dev ${DOM0_MOUNT}/dev                || return 1
+    do_mount -t tmpfs -o size=16M tmpfs ${DOM0_MOUNT}/tmp  || return 1
+    mount -t selinuxfs | grep -q -s 'selinuxfs' >&2
+    [ $? -eq 0 ] && ( do_mount -o bind /selinux ${DOM0_MOUNT}/selinux || return 1 )
+    # FIXME - revisit this for XC-5161:
+    do_mount /dev/xenclient/boot ${DOM0_MOUNT}/boot/system || return 1
+    do_mount -o user_xattr /dev/xenclient/storage ${DOM0_MOUNT}/storage  || return 1
+
+    return 0
+}
+
+mount_config()
+{
+    # mount /config in the proper place if we can, bind it if already mounted
+    is_mounted /config
+    if [ $? -eq 1 ]; then
+        echo "mount_config: /config mounted, binding to ${DOM0_MOUNT}/config" >&2
+        do_mount -o bind /config ${DOM0_MOUNT}/config      || return 1
+    elif [ -e /dev/mapper/config ]; then
+        echo "mount_config: config partition is already mapped, mounting" >&2
+        do_mount /dev/mapper/config ${DOM0_MOUNT}/config   || return 1
+    elif [ ! "${EXISTING_MEASURED_STATE}" = "true" ]; then
+        echo "mount_config: not sealed, not luksOpen-ed, using platform key to mount ..." >&2
+        eval get-config-key | cryptsetup -q -d - luksOpen \
+            "/dev/xenclient/config" config >&2
+        if [ $? -eq 0 ]; then
+            echo "mount_config: config mapped successfully, mounting" >&2
+            do_mount /dev/mapper/config ${DOM0_MOUNT}/config || return 1
+        else
+            echo "mount_config: ERROR luksOpen-ing /dev/xenclient/config" >&2
+        fi
+    else # not already mounted, mapped and platform state is sealed
+        echo "mount_config: /config not already mounted or mapped, and platform is sealed.  Cannot access /config" >&2
+    fi
+
+    return 0
+}
+
+install_bootloader_from_dom0fs()
+{
+    do_cmd chroot ${DOM0_MOUNT} \
+           /usr/share/xenclient/install-bootloader "${LANGUAGE}" >&2 || {
+        echo "Error installing the bootloader">&2
+        return 1
+    }
+    return 0
+}
+
+install_uivm()
+{
+    # Warning: A failed upgrade must leave the system untouched, so it is
+    # important that the commands in this function do not affect the existing
+    # uivm installation.
+
+    local UIVM_IMG="$1"
+    local UIVM_IMG_TYPE="$2"
+    local UIVM_SWAP_SIZE_IN_MB="256"
+    local UIVM_DISK_SIZE_IN_MB="500"
+    local UIVM_DIR=`dirname ${UIVM_VHD}.new`
+
+    do_cmd mkdir -p ${UIVM_DIR} >&2 || return 1
+    do_cmd selinux_mount_setfiles ${DOM0_MOUNT} /storage || return 1
+
+    # UIVM swap space.
+    create_swap_vhd "${UIVM_SWAP_VHD}.new" "${UIVM_SWAP_SIZE_IN_MB}" || return 1
+
+    # UIVM vhd
+    create_rootfs_vhd "${UIVM_IMG}" "${UIVM_IMG_TYPE}" "${UIVM_VHD}.new" \
+                      "${UIVM_DISK_SIZE_IN_MB}" || return 1
+
+    # Remove UIVM kernel left by older releases. This can be removed once we
+    # no longer support direct upgrade from XT 3.1.x releases.
+    local UIVM_KERNEL="${DOM0_MOUNT}/storage/uivm/vmlinuz"
+    do_cmd rm -f "${UIVM_KERNEL}"
+
+    # UIVM gconf vhd
+    if [ ! -e ${UIVM_GCONF_VHD} ]; then
+        do_cmd vhd-util create -n ${UIVM_GCONF_VHD}.new \
+                               -s 10 >&2 || return 1
+        do_cmd dd if=/dev/urandom of=${UIVM_GCONF_VHD_KEY} count=32 bs=1 || return 1
+        local VHD_FILENAME=`basename ${UIVM_GCONF_VHD}`
+        rm -f /tmp/${VHD_FILENAME}
+        ln -s ${UIVM_GCONF_VHD}.new /tmp/${VHD_FILENAME}
+        do_cmd vhd-util key -n /tmp/${VHD_FILENAME} -k ${UIVM_GCONF_VHD_KEY} -s
+        local KEY_FOLDER=`dirname ${UIVM_GCONF_VHD_KEY}`
+        local UIVM_GCONF_DEV=`TAPDISK2_CRYPTO_KEYDIR=${KEY_FOLDER} tap-ctl create -a "vhd:/tmp/${VHD_FILENAME}"`
+        if ! tap-ctl list | grep -q ${VHD_FILENAME}; then
+            tap-ctl destroy -d ${UIVM_GCONF_DEV} >&2
+            rm -f ${UIVM_GCONF_VHD}.new >&2
+            rm -f /tmp/${VHD_FILENAME}
+            return 1
+        fi
+
+        write_rootfs "none" "none" ${UIVM_GCONF_DEV} >&2 || return 1
+
+        # We won't need it anymore.
+        rm -f /tmp/${VHD_FILENAME}
+        do_cmd sync >&2
+        tap-ctl destroy -d ${UIVM_GCONF_DEV} >&2
+    fi
+}
+
+commit_uivm()
+{
+    # Warning: A failed upgrade must leave the system untouched, so it is
+    # important that the commands in this function do not fail. If they fail,
+    # the system may be left in a broken state.
+
+    do_cmd rm -f "${UIVM_VHD}"
+    do_cmd mv "${UIVM_VHD}.new" "${UIVM_VHD}" || return 1
+
+    if [ -e  "${UIVM_GCONF_VHD}.new" ]; then
+        do_cmd mv "${UIVM_GCONF_VHD}.new" "${UIVM_GCONF_VHD}" || return 1
+    fi
+
+    do_cmd rm -f "${UIVM_SWAP_VHD}"
+    do_cmd mv "${UIVM_SWAP_VHD}.new" "${UIVM_SWAP_VHD}" || return 1
+}
+
+install_ndvm()
+{
+    # Warning: A failed upgrade must leave the system untouched, so it is
+    # important that the commands in this function do not affect the existing
+    # ndvm installation.
+
+    local NDVM_IMG="$1"
+    local NDVM_IMG_TYPE="$2"
+    local NDVM_SWAP_SIZE_IN_MB="256"
+    local NDVM_DISK_SIZE_IN_MB="500"
+    local NDVM_DIR=`dirname ${NDVM_VHD}.new`
+
+    do_cmd mkdir -p ${NDVM_DIR} >&2 || return 1
+    do_cmd selinux_mount_setfiles ${DOM0_MOUNT} /storage || return 1
+
+    # NDVM swap space.
+    create_swap_vhd "${NDVM_SWAP_VHD}.new" "${NDVM_SWAP_SIZE_IN_MB}" || return 1
+
+    # NDVM vhd
+    create_rootfs_vhd "${NDVM_IMG}" "${NDVM_IMG_TYPE}" "${NDVM_VHD}.new" \
+                      "${NDVM_DISK_SIZE_IN_MB}" || return 1
+}
+
+commit_ndvm()
+{
+    # Warning: A failed upgrade must leave the system untouched, so it is
+    # important that the commands in this function do not fail. If they fail,
+    # the system may be left in a broken state.
+
+    do_cmd rm -f "${NDVM_VHD}"
+    do_cmd mv "${NDVM_VHD}.new" "${NDVM_VHD}" || return 1
+
+    do_cmd rm -f "${NDVM_SWAP_VHD}"
+    do_cmd mv "${NDVM_SWAP_VHD}.new" "${NDVM_SWAP_VHD}" || return 1
+}
+
+install_syncvm()
+{
+    # Warning: A failed upgrade must leave the system untouched, so it is
+    # important that the commands in this function do not affect the existing
+    # syncvm installation.
+
+    local SYNCVM_IMG="$1"
+    local SYNCVM_IMG_TYPE="$2"
+    local SYNCVM_DISK_SIZE_IN_MB="100"
+    local SYNCVM_DIR=`dirname ${SYNCVM_VHD}.new`
+
+    do_cmd mkdir -p ${SYNCVM_DIR} >&2 || return 1
+    do_cmd selinux_mount_setfiles ${DOM0_MOUNT} /storage || return 1
+
+    # SYNCVM vhd
+    create_rootfs_vhd "${SYNCVM_IMG}" "${SYNCVM_IMG_TYPE}" "${SYNCVM_VHD}.new" \
+        "${SYNCVM_DISK_SIZE_IN_MB}" || return 1
+}
+
+commit_syncvm()
+{
+    # Warning: A failed upgrade must leave the system untouched, so it is
+    # important that the commands in this function do not fail. If they fail,
+    # the system may be left in a broken state.
+
+    do_cmd rm -f "${SYNCVM_VHD}"
+    do_cmd mv "${SYNCVM_VHD}.new" "${SYNCVM_VHD}" || return 1
+}
+
+create_rootfs_vhd()
+{
+    local IMG="$1"
+    local IMG_TYPE="$2"
+    local VHD="$3"
+    local DISK_SIZE_IN_MB="$4"
+
+    do_cmd rm -f "${VHD}" || return 1
+
+    if [ "${IMG_TYPE}" = "vhdgz" ] ; then
+        do_cmd gunzip -c "${IMG}" > "${VHD}" || return 1
+    else
+        do_cmd vhd-util create -n "${VHD}" \
+                               -s "${DISK_SIZE_IN_MB}" >&2 || return 1
+
+        local DEV=$(tap-ctl create -a "vhd:${VHD}")
+        if ! tap-ctl list | grep -q "${VHD}"; then
+            tap-ctl destroy -d ${DEV} >&2
+            rm -f "${VHD}" >&2
+            return 1
+        fi
+
+        write_rootfs ${IMG} ${IMG_TYPE} ${DEV} >&2 || return 1
+
+        tap-ctl destroy -d ${DEV} >&2 || return 1
+    fi
+}
+
+write_rootfs()
+{
+    local IMG="$1"            # Image path
+    local IMG_TYPE="$2"       # Image type
+    local DEVICE="$3"         # Device where to write image
+
+    local ERR=0
+    case ${IMG_TYPE} in
+        cpiobz2)
+            do_cmd mkfs.ext3 -q ${DEVICE} >&2 || return 1
+            do_cmd tune2fs -i 0 -c -1 -m 0 ${DEVICE} || return 1
+            do_mount ${DEVICE} ${TEMP_ROOTFS_MOUNT} >&2 || return 1
+            do_cmd cd ${TEMP_ROOTFS_MOUNT}
+            do_cmd bzcat ${IMG} | cpio -idm >&2
+            ERR=$?
+            do_cmd cd - >&2
+            do_umount ${TEMP_ROOTFS_MOUNT} >&2
+            ;;
+        ext2bz2)
+            do_cmd bzcat ${IMG} > ${DEVICE} || return 1
+            do_cmd sync >&2 || return 1
+            ;;
+        ext3gz)
+            do_cmd gunzip -c ${IMG} > ${DEVICE}  || return 1
+            do_cmd sync >&2 || return 1
+            ;;
+        none)
+            do_cmd mkfs.ext3 -q ${DEVICE} >&2 || return 1
+            do_cmd tune2fs -i 0 -c -1 -m 0 ${DEVICE} || return 1
+	    ;;	    
+        *)
+            echo "Unknown image type '${IMG_TYPE}'" >&2
+            return 1
+    esac
+
+    return $ERR
+}
+
+create_swap_vhd()
+{
+    local VHD="$1"
+    local SIZE_IN_MB="$2"
+
+    do_cmd rm -f "${VHD}" 2>/dev/null
+    [ ! -e "${VHD}" ] >&2 || return 1
+
+    do_cmd vhd-util create -n "${VHD}" -s "${SIZE_IN_MB}" -r || return 1
+
+    local DEV=$(tap-ctl create -a "vhd:${VHD}")
+    if ! tap-ctl list | grep -q "${VHD}" ; then
+        do_cmd tap-ctl destroy -d "${DEV}" >&2
+        rm -f "${VHD}" >&2
+        return 1
+    fi
+
+    if ! do_cmd mkswap "${DEV}" >&2 ; then
+        do_cmd tap-ctl destroy -d "${DEV}" >&2
+        rm -f "${VHD}" >&2
+        return 1
+    fi
+
+    do_cmd sync >&2
+    do_cmd tap-ctl destroy -d "${DEV}" >&2
+}
+
+install_file()
+{
+    # Warning: A failed upgrade must leave the system untouched, so it is
+    # important that the commands in this function do not affect the existing
+    # installation.
+
+    local SRC="$1"
+    local DST="$2"
+
+    mkdir -p $(dirname "${DOM0_MOUNT}/${DST}") || return 1
+    rm -f "${DOM0_MOUNT}/${DST}.new" 2>/dev/null # ignore errors on this command.
+    cp "${SRC}" "${DOM0_MOUNT}/${DST}.new" || return 1
+
+    return 0
+}
+
+commit_file()
+{
+    # Warning: A failed upgrade must leave the system untouched, so it is
+    # important that the commands in this function do not fail. If they fail,
+    # the system may be left in a broken state.
+
+    local DST="$1"
+
+    rm -f "${DOM0_MOUNT}/${DST}"
+    mv "${DOM0_MOUNT}/${DST}.new" "${DOM0_MOUNT}/${DST}" || return 1
+
+    return 0
+}
+
+exec_install_file()
+{
+    local APPLY_MODE="$1"
+    local PACKAGE_TYPE="$2"
+    local PACKAGE_FILE="$3"
+    local DESTINATION="$4"
+
+    echo -e >&2 "Executing install file with mode: ${APPLY_MODE}" \
+                "\nType: ${PACKAGE_TYPE}" \
+                "\nFrom: ${PACKAGE_FILE}" \
+                "\nTo: ${DESTINATION}\n"
+
+    local RESULT
+
+    case "${PACKAGE_TYPE}" in
+        bz2exe)
+            local EXE="$(mktemp -t)"
+            bunzip2 "${PACKAGE_FILE}" -q -c >"${EXE}"
+            chmod 755 "${EXE}"
+            "${EXE}" "${APPLY_MODE}" "${DOM0_MOUNT}" "${DESTINATION}"
+            RESULT="$?"
+            rm -f "${EXE}"
+        ;;
+        exe)
+            local EXE="$(mktemp -t)"
+            # Copy in order to ensure executable permission is set
+            cp -f "${PACKAGE_FILE}" "${EXE}"
+            chmod 755 "${EXE}"
+            "${EXE}" "${APPLY_MODE}" "${DOM0_MOUNT}" "${DESTINATION}"
+            RESULT="$?"
+            rm -f "${EXE}"
+        ;;
+        ash)
+            # Execute in place
+            ash "${PACKAGE_FILE}" "${APPLY_MODE}" "${DOM0_MOUNT}" "${DESTINATION}"
+            RESULT="$?"
+            rm -f "${EXE}"
+        ;;
+        *)
+            echo "ERROR: Unknown exec package type: ${PACKAGE_TYPE}">&2
+            RESULT=1
+        ;;
+    esac
+
+    return ${RESULT}
+}
+
+install_vhds_and_vms()
+{
+    mixedgauge "Installing virtual machines (please wait)..." 90
+
+    if ! install_vhds ; then
+        echo "ERROR: Failure installing virtual hard disks." >&2
+        return 1
+    fi
+
+    if ! install_vms ; then
+        echo "ERROR: Failure installing virtual machines." >&2
+        return 1
+    fi
+
+    return 0
+}
+
+write_disk_mbr()
+{
+    if [ "${INSTALL_MBR}" = "true" ] ; then
+        mixedgauge "Updating MBR..." 95
+        local DISK_DEV="/dev/${TARGET_DISK}"
+        if ! do_cmd dd "if=${MBR_BINARY}" "of=${DISK_DEV}" >&2 ; then
+            echo "ERROR: Failure installing the disk MBR: aborting.">&2
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+mount_existing_dom0()
+{
+    local MNT="$1"
+
+    CURRENT_MNT=$(grep "^/dev/mapper/xenclient-root " /proc/mounts |
+                  cut -f2 -d' ')
+
+    if [ "${CURRENT_MNT}" ] ; then
+        do_mount --bind "${CURRENT_MNT}" "${MNT}" || return 1
+    else
+        do_mount -o ro "${ROOT_DEV}" "${MNT}" || return 1
+    fi
+
+    return 0
+}
+
+mount_existing_boot()
+{
+    local MNT="$1"
+
+    CURRENT_MNT=$(grep "^/dev/mapper/xenclient-boot " /proc/mounts |
+                  cut -f2 -d' ')
+
+    if [ "${CURRENT_MNT}" ] ; then
+        do_mount --bind "${CURRENT_MNT}" "${MNT}" || return 1
+    else
+        do_mount -o ro "/dev/xenclient/boot" "${MNT}" || return 1
+    fi
+
+    return 0
+}
+
+mount_existing_log()
+{
+    local MNT="$1"
+
+    LOG_DEV=$(readlink -f /dev/mapper/log)
+    CURRENT_MNT=$(grep "^${LOG_DEV}" /proc/mounts | cut -f2 -d' ')
+
+    if [ -d "${CURRENT_MNT}" ]; then
+        echo "mount_existing_log: binding ${CURRENT_MNT} to ${MNT}" >&2
+        do_mount --bind "${CURRENT_MNT}" "${MNT}" || return 1
+    fi
+
+    return 0
+}
+
+# Initial linking of policy modules is now done in the build.
+# We must 'load_policy' however for upgrade where new types / modules are
+#   introduced.
+selinux_init()
+{
+    local MNT="$1"
+    if [ ! -d ${MNT} ]; then
+        echo "ERROR: Directory doesn't exist: ${MNT}" >&2
+        return 1
+    fi
+    if [ ! -f ${MNT}/selinux/enforce ]; then
+        echo "WARNING: Either selinuxfs bind mount is missing or SELinux not enabled, can't load policy" >&2
+        return 0
+    fi
+    do_cmd chroot ${MNT} sh -c "
+        /usr/sbin/load_policy" || return 1
+    return 0
+}
+
+selinux_mount_setfiles()
+{
+    local MNT="$1"
+    if [ ! -d ${MNT} ]; then
+        echo "ERROR: Directory doesn't exist: ${MNT}" >&2
+        return 1
+    fi
+    shift
+    local POL_CONF=${MNT}/etc/selinux/config
+    if [ ! -f ${POL_CONF} ]; then
+        echo "ERROR: No selinux config file at mount ${MNT}" >&2
+        return 1
+    fi
+
+    local POL_TYPE=$(cat ${POL_CONF} | grep 'SELINUXTYPE' \
+        | sed -e 's&SELINUXTYPE=\(.*\)&\1&')
+    if [ -z ${POL_TYPE} ]; then
+        echo "ERROR: Unable to determine SELinux policy type!" >&2
+        return 1
+    fi
+    for DIR in $@; do
+        do_cmd chroot ${MNT} sh -c "
+            /sbin/setfiles /etc/selinux/${POL_TYPE}/contexts/files/file_contexts ${DIR}" \
+                || return 1
+    done
+    return 0
+}
+
+# return 1 if there's something mounted on the provided path
+# else 0
+is_mounted()
+{
+    local MOUNT_PT=$1
+    cat /proc/mounts | awk '{ print $2 }' | grep -q "^${MOUNT_PT}$"
+    if [ $? -eq 0 ]; then
+        return 1
+    else
+        return 0
+    fi
+}
+
+# take ownership of TPM if necessary
+own_tpm()
+{
+    if [ "${TPM_STATE}" != "active" ]; then
+        echo "TPM sate not active, canot own_tpm" >&2
+        return 1
+    fi
+    if [ "${TPM_OWNED}" = "true" ]; then
+        echo "TPM is owned, cannot own_tpm" >&2
+        return 1
+    fi
+
+    if [ ! -r ${RECOVERY_PUBLIC_KEY_CONF} ]; then
+        echo "No recovery key: ${RECOVERY_PUBLIC_KEY_CONF}" >&2
+        echo "Cannot encrypt generated TPM key." >&2
+        return 1
+    fi
+
+    tpm_configure_gen_passwd  "${RECOVERY_PUBLIC_KEY_CONF}" "${TPM_OWNER_PASSWD_SSL}" "${TPM_EK}"
+    if [ $? -ne 0 ]; then
+        echo "tpm_configure_gen_passwd failed" >&2
+        [ -f "${TPM_OWNER_PASSWD_SSL}" ] && rm "${TPM_OWNER_PASSWD_SSL}"
+        return 1
+    fi
+    
+    # XC-9642 files in DOM0_SENSITIVE_CONFIGS are copied before commit
+    #   must manually move ${TPM_OWNER_PASSWD_SSL} currently
+    [ ! -d ${DOM0_MOUNT}/boot/system/config ] && mkdir -p ${DOM0_MOUNT}/boot/system/config
+    # make noise about squasing old encrypted password file
+    if [ -e "${TPM_OWNER_PASSWD_SSL}" ]; then
+        echo "TPM_OWNDER_PASSWD_SSL exists already but TPM wasn't owned." >&2
+        echo "Overwriting old passwd file with new." >&2
+    fi
+    mv "${TPM_OWNER_PASSWD_SSL}" ${DOM0_MOUNT}/boot/system/config || return 1
+
+    return 0
+}

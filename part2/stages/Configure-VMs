@@ -1,0 +1,149 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${VHD_CONF}
+
+#------------------------------------------------------------------------------
+# Answerfile tags:
+#
+#     <vms>
+#       <vm>
+#         <vm-source>http://my.url/first-vm.db</vm-source>
+#         <vm-vhds>
+#           <vm-vhd index="0" label="vhd1"></vm-vhd>
+#         <vm-vhds>
+#       </vm>
+#       <vm>
+#         <vm-source>http://my.url/second-vm.db</vm-source>
+#         <vm-vhds>
+#           <vm-vhd index="0" label="vhd2"></vm-vhd>
+#           <vm-vhd index="1" label="vhd3"></vm-vhd>
+#         <vm-vhds>
+#       </vm>
+#     </vms>
+#
+# Currently this script only supports one <vm> block with the <vms> block and
+# one <vm-vhd> tag within each <vm-vhds> block.
+#------------------------------------------------------------------------------
+
+rm -f ${VM_CONF}
+
+not_previous || exit ${Previous}
+
+read_vms()
+{
+    local VM_COUNT=0
+    VM_FROM_NETWORK="false"
+
+    if answerfile_specifies "vms" ; then
+        local VM_HANDLE=$(answerfile_xml_loop "vhds" "vhd")
+
+        while [ "${VM_HANDLE}" ] ; do
+            VM_COUNT=$((VM_COUNT + 1))
+
+            local VM_UUID=$(cat /proc/sys/kernel/random/uuid)
+            # TODO: revisit this when adding support for more than one VM.
+            local VM_SOURCE=$(read_xml_tag "${ANSWERFILE}" "vm-source")
+
+            fetch_requires_network "${VHD_SOURCE}" && VM_FROM_NETWORK="true"
+
+            cat <<EOF >> ${VM_CONF}
+VM_${VM_COUNT}_UUID='${VM_UUID}'
+VM_${VM_COUNT}_SOURCE='${VM_SOURCE}'
+EOF
+
+            read_vm_vhds "${VM_HANDLE}" "${VM_COUNT}"
+
+            VM_HANDLE=$(answerfile_xml_loop_next "${VM_HANDLE}")
+        done
+    fi
+
+    cat <<EOF >> ${VM_CONF}
+VM_COUNT='${VM_COUNT}'
+VM_FROM_NETWORK='${VM_FROM_NETWORK}'
+EOF
+
+    if [ "${VM_COUNT}" -gt 1 ] ; then
+        echo "ERROR: Answerfile specifies more than one VM; this is not" \
+             "currently supported." >&2
+        exit ${Abort}
+    fi
+}
+
+read_vm_vhds()
+{
+    local VM_HANDLE="$1"
+    local VM_COUNT="$2"
+
+    local VM_VHD_COUNT=0
+    # TODO: revisit this when adding support for more than one VM.
+    local VM_VHD_HANDLE=$(answerfile_xml_loop "vm-vhds" "vm-vhd")
+
+    while [ "${VM_VHD_HANDLE}" ] ; do
+        VM_VHD_COUNT=$((VM_VHD_COUNT + 1))
+
+        VM_VHD_INDEX=$(read_xml_loop_attr "${VM_VHD_HANDLE}" "index")
+        VM_VHD_LABEL=$(read_xml_loop_attr "${VM_VHD_HANDLE}" "label")
+
+        check_vhd_label "${VM_VHD_LABEL}"
+
+        cat <<EOF >> ${VM_CONF}
+VM_${VM_COUNT}_VHD_INDEX_${VM_VHD_COUNT}='${VM_VHD_INDEX}'
+VM_${VM_COUNT}_VHD_LABEL_${VM_VHD_COUNT}='${VM_VHD_LABEL}'
+EOF
+
+        VM_VHD_HANDLE=$(answerfile_xml_loop_next "${VM_VHD_HANDLE}")
+    done
+
+    cat <<EOF >> ${VM_CONF}
+VM_${VM_COUNT}_VHD_COUNT='${VM_VHD_COUNT}'
+EOF
+
+    if [ "${VM_VHD_COUNT}" -gt 1 ] ; then
+        echo "ERROR: Answerfile specifies more than one VHD for a VM; this" \
+             "is not currently supported." >&2
+        exit ${Abort}
+    fi
+}
+
+check_vhd_label()
+{
+    local VHD_LABEL_TO_CHECK="$1"
+
+    local N
+    for N in $(seq 1 "${VHD_COUNT}") ; do
+        local VHD_LABEL=$(get_var "VHD_${N}_LABEL")
+        if [ "${VHD_LABEL}" -a "${VHD_LABEL}" = "${VHD_LABEL_TO_CHECK}" ] ; then
+            return 0
+        fi
+    done
+
+    echo "ERROR: Answerfile references undefined VHD label" \
+         "'${VHD_LABEL_TO_CHECK}'." >&2
+    exit ${Abort}
+}
+
+read_vms
+
+if [ "${VHD_FROM_NETWORK}" = "true" -o "${VM_FROM_NETWORK}" = "true" ] ; then
+    exit ${Network}
+else
+    exit ${NoNetwork}
+fi

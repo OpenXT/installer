@@ -1,0 +1,115 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+######################################################################
+# Have all the answerfile-specified packs been processed yet?
+# If not, pick the next from the list and process that one.
+
+rm -f "${NEXT_PACK_CONF}"
+
+# Read how many extra packs we've preprocessed so far:
+COUNT_SO_FAR="$(ls -1 ${EXTRA_DATA_SEQUENCE} 2>/dev/null | sort -n | tail -1)"
+[ ! -z "${COUNT_SO_FAR}" ] || COUNT_SO_FAR=0
+
+if answerfile_specifies "supplemental-packs" ; then
+
+    echo "Answerfile specifies supplemental-packs">&2
+
+    # Iterate through the list of packs
+    # to get to the next one to be installed:
+
+    INSTALL_ANS_PACK=1 # false
+    LOOP_COUNT=0
+    HANDLE="$(answerfile_xml_loop "supplemental-packs" "supplemental-source")"
+    while [ -n "${HANDLE}" ] ; do
+        if [ "${LOOP_COUNT}" -eq "${COUNT_SO_FAR}" ] ; then
+            # Need to install this pack
+            INSTALL_ANS_PACK=0 # true
+
+            SOURCE_TYPE="$(read_xml_loop_attr "${HANDLE}" "type")"
+            case ${SOURCE_TYPE} in
+                url|nfs|local|bootmedia)
+                    SOURCE="$(read_xml_loop_element "${HANDLE}")"
+                    SOURCE_VERIFY="$(read_xml_loop_attr "${HANDLE}" "verify")"
+                    ;;
+                *)
+                     echo "Unknown source type (${SOURCE_TYPE}) in answerfile: aborting.">&2
+                     exit ${Abort}
+                ;;
+            esac
+            break
+        fi
+        LOOP_COUNT=$(( LOOP_COUNT + 1 ))
+        HANDLE="$(answerfile_xml_loop_next "${HANDLE}")"
+    done
+
+    if [ "${INSTALL_ANS_PACK}" -eq 0 ] ; then
+        echo "Identified a supplemental pack specified in the answerfile.">&2
+        # Write the config indicating the pack to install:
+        echo -e "SOURCE='${SOURCE}'\nSOURCE_TYPE='${SOURCE_TYPE}'\nSOURCE_VERIFY='${SOURCE_VERIFY}'">"${NEXT_PACK_CONF}"
+        cat "${NEXT_PACK_CONF}">&2
+        exit ${ExtraDisks}
+    else
+        # no remaining answerfile-specified packs to process
+        interactive || exit ${NoMoreDisks}
+    fi
+
+else
+    if ! interactive ; then
+        not_previous || exit ${Previous}
+        exit ${NoMoreDisks}
+    fi
+fi
+
+#---------------------------------------------------------------------
+# Does the answerfile specify that we should not prompt for extra
+# packs? This is a separate tag so it can be specified by the
+# "quick-option" in the answerfile.
+
+if answerfile_specifies "skip-extra-supplemental-packs" ; then
+    echo "Answerfile specifies skip-extra-supplemental-packs">&2
+    not_previous || exit ${Previous}
+    exit ${NoMoreDisks}
+fi
+
+#---------------------------------------------------------------------
+MORE=""
+WIDTH="53"
+# FIXME: this check should instead count the number of _interactively
+#        supplied_ supplemental packs, rather than the total number.
+if [ "${COUNT_SO_FAR}" -ne "0" ] ; then
+    MORE=" more"
+    WIDTH="58"
+fi
+
+#---------------------------------------------------------------------
+# Note that the ${NEXT_PACK_CONF} file will not exist if exiting
+# here, which will cause the next step to prompt the user.
+
+dialog --defaultno --colors --yesno "
+  Do you have any${MORE} optional \ZbSupplemental Packs\ZB
+  you wish to install with ${PRODUCT_BRAND}?
+    " 7 "${WIDTH}"
+OPT=$?
+[ "$OPT" != "0" ]   || exit ${ExtraDisks}
+[ "$OPT" != "1" ]   || exit ${NoMoreDisks}
+[ "$OPT" != "255" ] || exit ${Previous}
+exit ${Abort}

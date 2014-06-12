@@ -1,0 +1,196 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+# answerfile <source> tags:
+#
+# <source type="url">http://www.foo.com/alpha/repo</source>
+# <source type="url">ftp://ftp.foo.com/alpha/repo</source>
+# <source type="nfs">192.168.1.1:/foo/bar/baz</source>
+
+#-----------------------------------------------------------
+validate_repo_address()
+{
+    PROTO="$1"
+    ADDR="$2"
+    case "${PROTO}" in
+        http)
+            TEST="$(echo ${ADDR} | sed -ne '/^http:\/\/.*$/p')"
+        ;;
+        ftp)
+            TEST="$(echo ${ADDR} | sed -ne '/^ftp:\/\/.*$/p')"
+        ;;
+        nfs)
+            # Ensure that there is no "http", "ftp" or "nfs" prefix.
+            # (nfs just specifies mount arg, eg. "12.34.5.6:/foo/bar")
+            TEST=$(echo "${ADDR}" | sed -e '/^\(ftp\|http\|nfs\):/d' -ne '/^[^:]\+:[^:]*$/p')
+        ;;
+        *)  # this shouldn't happen:
+            return 1
+        ;;
+    esac
+    [ ! -z "${TEST}" ] || return 1
+    return 0
+}
+
+#-----------------------------------------------------------
+select_repo_type()
+{
+    #FIXME: disable NFS option here until the installer environment supports it:
+    #ARG="http \"Hypertext Transfer Protocol\" ftp \"File Transfer Protocol\" nfs \"Network File System\""
+    ARG="http \"Hypertext Transfer Protocol\" ftp \"File Transfer Protocol\""
+
+    CAPTURE=$(mktemp -t)
+    echo ${ARG} | xargs dialog --ok-label Select --cancel-label Previous --menu "Select protocol for the repository" 7 40 0 2>${CAPTURE}
+    OPT="$?"
+
+    if [ "${OPT}" != 0 ] ; then
+        rm -f ${CAPTURE}
+        [ "${OPT}" != 1 ]   || exit ${Previous}
+        [ "${OPT}" != 123 ] || exit ${Previous}
+        [ "${OPT}" != 124 ] || exit ${Previous}
+        exit ${Abort}
+    fi
+    # Read the selection
+    NETWORK_PROTOCOL=$(cat ${CAPTURE} 2>/dev/null)
+    rm -f ${CAPTURE}
+    return 0
+}
+
+#-----------------------------------------------------------
+get_default_string()
+{
+    PROTO="$1"
+    ADDR="$2"
+    # The default string:
+    # If the selected protocol matches that of the already configured repo, then use that.
+    # If not, then prepopulate with an example string to indicate syntax.
+
+    case "${PROTO}" in
+        http)
+            DEFAULT_REPO="$(echo ${ADDR} | sed -ne '/^http:\/\//p')"
+            [ ! -z "${DEFAULT_REPO}" ] || DEFAULT_REPO="http://foo.bar/baz"
+        ;;
+        ftp)
+            DEFAULT_REPO="$(echo ${ADDR} | sed -ne '/^ftp:\/\//p')"
+            [ ! -z "${DEFAULT_REPO}" ] || DEFAULT_REPO="ftp://foo.bar/baz"
+        ;;
+        nfs)
+            DEFAULT_REPO="$(echo ${ADDR} | sed -e '/^\(ftp\|http\):\/\//d')"
+            [ ! -z "${DEFAULT_REPO}" ] || DEFAULT_REPO="1.2.3.4:/foo/bar"
+        ;;
+    esac
+    echo ${DEFAULT_REPO}
+}
+
+#-----------------------------------------------------------
+get_repo_address()
+{
+    DEFAULT_REPO="$1"
+    show_cursor
+    CAPTURE=$(mktemp -t)
+    dialog --inputbox "Please enter the network repository location" 9 50 "${DEFAULT_REPO}" 2>${CAPTURE}
+
+    OPT="$?"
+    hide_cursor
+    if [ ${OPT} != 0 ] ; then
+        rm -f ${CAPTURE}
+        [ ${OPT} != 1 ]   || return 1
+        [ ${OPT} != 255 ] || return 1
+        exit ${Abort}
+    fi
+
+    NETWORK_REPO=$(cat ${CAPTURE})
+    rm -f ${CAPTURE}
+    return 0
+}
+
+#-----------------------------------------------------------
+parse_source_type()
+{
+    ANSF="$1"
+    REPO="$2"
+    SOURCE_TYPE=$(read_xml_attr "${ANSF}" "source" "type")
+    case ${SOURCE_TYPE} in
+    url)    echo "${REPO}" | sed -ne 's/^\(http\|ftp\):.*$/\1/p'
+        ;;
+    nfs)    echo "nfs"  
+        ;;
+    local)  echo "Found local source type in answerfile yet configuring network? : aborting.">&2
+            exit ${Abort}
+        ;;
+    *)      echo "Unknown source type (${SOURCE_TYPE}) in answerfile: aborting.">&2
+            exit ${Abort}
+        ;;
+    esac
+}
+
+#-----------------------------------------------------------
+
+unset NETWORK_REPO
+unset NETWORK_PROTOCOL
+[ ! -r ${NETWORK_REPO_CONF} ] || . ${NETWORK_REPO_CONF}
+
+HANDLE_PREV=0
+
+if answerfile_specifies "source" ; then
+    NETWORK_REPO=$(read_xml_tag "${ANSWERFILE}" "source")
+    if [ -z "${NETWORK_REPO}" ] ; then
+        echo "ERROR: Couldn't parse <source> in the answerfile: aborting.">&2
+        exit ${Abort}
+    fi
+
+    NETWORK_PROTOCOL=$(parse_source_type "${ANSWERFILE}" "${NETWORK_REPO}")
+
+    if ! validate_repo_address "${NETWORK_PROTOCOL}" "${NETWORK_REPO}" ; then
+        echo "ERROR: Couldn't validate <source> in the answerfile: aborting.">&2
+        exit ${Abort}
+    fi
+
+    HANDLE_PREV=1
+
+else
+    if ! interactive ; then
+        echo "ERROR: No <source> in answerfile: aborting">&2
+        exit ${Abort}
+    fi
+
+    while [ 1 ] ; do
+        select_repo_type # this defines ${NETWORK_PROTOCOL}
+
+         # below defines: ${NETWORK_REPO}
+        get_repo_address $(get_default_string "${NETWORK_PROTOCOL}" "${NETWORK_REPO}")
+        OPT="$?"
+        [ "${OPT}" != 1 ] || continue
+
+        if validate_repo_address "${NETWORK_PROTOCOL}" "${NETWORK_REPO}" ; then
+            break
+        else
+            dialog --ok-label Continue --msgbox "Invalid ${NETWORK_PROTOCOL} repository address.\n     Please try again." 0 0
+        fi
+    done
+fi
+
+echo -e "NETWORK_REPO='${NETWORK_REPO}'\nNETWORK_PROTOCOL='${NETWORK_PROTOCOL}'" >${NETWORK_REPO_CONF}
+
+[ "${HANDLE_PREV}" -eq 0 ] || not_previous || exit ${Previous}
+
+exit ${Continue}
+

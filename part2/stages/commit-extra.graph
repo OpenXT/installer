@@ -1,0 +1,9 @@
+Start,                        Continue:Initialise-state
+ErrorHandler,                 Continue:Fail
+
+Initialise-state,             Continue:Commit-extra | Abort:Unexpected-failure
+Commit-extra,                 Continue:Succeed | Abort:Unexpected-failure
+
+Succeed,                      Continue:End{Continue}
+Fail,                         Continue:End{Abort}
+Unexpected-failure,           Continue:End{UnexpectedAbort}

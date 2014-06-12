@@ -1,0 +1,147 @@
+#!/bin/ash
+#
+# Copyright (c) 2014 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+RUN_SCRIPT="run"
+SUCCESS=64
+
+usage()
+{
+    cat <<EOF >&2
+$0 [-c <control dir>] [-m <mount dir>] <xc pkgs dir> [<extra pkgs dir> ...]
+
+options:
+
+    -c <control dir>  directory containing this script; defaults to working
+                      directory
+
+    -m <mount dir>    create all temporary mount points under this directory;
+                      defaults to /mnt/upgrade
+
+    <xc pkgs dir>     directory containing OpenXT repository
+
+    <extra pkgs dir>  directory containing optional supplemental pack
+
+EOF
+}
+
+parse_args()
+{
+    INSTALL_ROOT="$(pwd)"
+    MOUNT_ROOT="/mnt/upgrade"
+
+    while [ -n "$1" ] ; do
+        case "$1" in
+            -c) INSTALL_ROOT="$2"
+                shift
+                ;;
+            -m) MOUNT_ROOT="$2"
+                shift
+                ;;
+            -*) return 1
+                ;;
+            *)  break
+                ;;
+        esac
+        shift
+    done
+
+    [ $# -ge 1 ] || return 1
+
+    PACKAGES_DIR="$1"
+    shift
+
+    EXTRA_PACKAGES_DIRS="$*"
+
+    DATA_DIR="${INSTALL_ROOT}/upgrade-data"
+}
+
+create_answerfile()
+{
+    ANSWERFILE="${DATA_DIR}/answerfile"
+
+    if ! mkdir -p "${DATA_DIR}" ; then
+        echo "ERROR: Could not create directory '${DATA_DIR}'." >&2
+        exit 1
+    fi
+
+    # FIXME - revisit this:
+    cat <<EOF > "${ANSWERFILE}"
+<interactive>false</interactive>
+<mode>upgrade</mode>
+EOF
+}
+
+run_subgraph()
+{
+    local SUBGRAPH_NAME="$1"
+    local PACKAGES_DIR="$2"
+
+    local SUBGRAPH_DATA_DIR="${DATA_DIR}/${SUBGRAPH_NAME}"
+    local CONFIG_FILE="${SUBGRAPH_DATA_DIR}/subgraph.conf"
+
+    if ! mkdir -p "${SUBGRAPH_DATA_DIR}" ; then
+        echo "ERROR: Could not create directory '${SUBGRAPH_DATA_DIR}'." >&2
+        exit 1
+    fi
+
+    cat <<EOF > "${CONFIG_FILE}"
+INSTALL_ROOT='${INSTALL_ROOT}'
+MOUNT_ROOT='${MOUNT_ROOT}'
+ANSWERFILE='${ANSWERFILE}'
+INTERACTIVE='1'
+PACKAGES_DIR="${PACKAGES_DIR}"
+EOF
+
+    (
+        cd "${INSTALL_ROOT}" &&
+            ./"${RUN_SCRIPT}" -c "${CONFIG_FILE}" "${SUBGRAPH_NAME}"
+    )
+    local RET=$?
+
+    if [ "${RET}" -ne "${SUCCESS}" ] ; then
+        echo "ERROR: Upgrade failed: '${SUBGRAPH_NAME}' returned ${RET}." >&2
+        exit 1
+    fi
+}
+
+if ! parse_args "$@" ; then
+    usage
+    exit 1
+fi
+
+if [ ! -x "${INSTALL_ROOT}/${RUN_SCRIPT}" ] ; then
+    echo "ERROR: Control directory '${INSTALL_ROOT}' is not correct." >&2
+    exit 1
+fi
+
+create_answerfile
+
+run_subgraph "install-main" "${PACKAGES_DIR}"
+
+for i in ${EXTRA_PACKAGES_DIRS} ; do
+    run_subgraph "install-extra" "$i"
+done
+
+run_subgraph "preserve-data" ""
+
+run_subgraph "commit-main" "${PACKAGES_DIR}"
+
+for i in ${EXTRA_PACKAGES_DIRS} ; do
+    run_subgraph "commit-extra" "$i"
+done

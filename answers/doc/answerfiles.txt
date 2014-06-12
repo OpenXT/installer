@@ -1,0 +1,351 @@
+######################################################################
+Answerfiles for OpenXT installation
+######################################################################
+
+The answerfile is located by examining the kernel command line.
+
+answerfile=/file/included/in/the/initrd
+answerfile=http://foo.bar/this/is/my.answerfile
+answerfile=ftp://foo.bar/this/is/my.answerfile
+answerfile=tftp://foo.bar/this/is/my.answerfile
+answerfile=dev://sda1/this/is/my.answerfile
+
+Answerfiles retrieved over the network are currently reached by
+bringing up the NIC with DHCP.
+
+Optional:
+answerfile_nw="eth0"
+For an answerfile retrieved over the network on a machine with more
+than one NIC, answerfile_nw specifies which NIC to use.
+
+######################################################################
+Answerfile tags
+
+The answerfile is an approximate-xml file.
+Each tag is expected to be contained on a single line
+in the file (ie. <tag> </tag> with no newlines).
+The exceptions to this rule are the pre and post install scripts, and
+the quick-options tag.
+
+As the tag is not parsed with a true xml parser, it may be fragile.
+Caution advised.
+
+######################################################################
+<interactive>true</interactive>
+<interactive>false</interactive>
+
+Determines whether the install runs with the local interactive console
+enabled or not.
+
+######################################################################
+<quick-option>
+# other answerfile tags here
+</quick-option>
+
+If present, this is used by the interactive installer to present two
+options on the initial install screen:
+- Quick install
+- Advanced install
+
+If Quick install is selected, then the answertags inbetween
+<quick-option> and </quick-option> are used. If Advanced install
+is selected, then they are ignored.
+
+######################################################################
+<eula accept="yes"></eula>
+<eula accept="defer"></eula>
+
+Required for automated installation.
+
+The "yes" option indicates that the end-user license agreement has
+been accepted. The user will not be prompted to accept the agreement
+during the installation.
+
+The "defer" option indicates that the user should be prompted to
+accept the end-user license agreement when the system is first booted.
+
+If this option is not present, an interactive installation will prompt
+the user to accept the end-user license agreement.
+
+######################################################################
+<source type="url">http://127.0.0.1/foo/bar</source>
+<source type="bootmedia"></source>
+<source type="local" verify="true"></source>
+<source type="harddisk" oem="true"></source>
+
+Required.
+
+The URL option can use either http or ftp.
+
+The "local" option is for optical media installs, and the "verify"
+flag can determine whether or not the media should be verified
+prior to performing the installation.
+
+To use the "bootmedia" option, the installer initrd must be repacked
+to include a copy of the "packages.main" repository at the root of the
+filesystem. A copy of this repository can be found on the installation
+ISO. This option enables PXE-only network installation in situations
+where network installation via the other options is not feasible.
+
+The "harddisk" option is for installing from a hard disk partition. To
+prepare a bootable partition from which OpenXT can be installed, first
+boot from the installer CD-ROM, then switch to a shell and use the
+"prepare-hd-install" script to copy the installer and repository from
+the CD-ROM to the partition. The "oem" option indicates that the
+installer should treat this as an OEM partition when partitioning the
+disk (see the "partition-mode" tag below).
+
+######################################################################
+<mode>fresh</mode>
+<mode>upgrade</mode>
+
+Required for automated installation.
+Indicates whether to perform a destructive fresh installation or
+to upgrade an existing install.
+
+######################################################################
+<primary-disk>sda</primary-disk>
+
+Required for automated installation if more than a single disk is
+detected on the machine.
+
+######################################################################
+<partition-mode>overwrite</partition-mode>
+<partition-mode>use-free-space</partition-mode>
+<partition-mode>erase-non-oem</partition-mode>
+<partition-mode>erase-entire-disk</partition-mode>
+<partition-mode></partition-mode>
+
+Determines what changes are made to the partition layout of the
+primary disk when performing a fresh installation.
+
+The "overwrite" option will overwrite an existing installation. All
+other partitions on the disk will be preserved. This option is only
+available if there is an existing installation on the disk.
+
+The "use-free-space" option will install into the available free space
+on the disk. All existing partitions on the disk will be preserved.
+This option is only available if free space exists on the disk, a new
+primary partition can be created and there is no existing installation
+on the disk.
+
+The "erase-non-oem" option will preserve any OEM partitions, erasing
+all other partitions on the disk and installing into the available
+space. (At present only Dell Utility Partitions are detected as OEM
+partitions.)
+
+The "erase-entire-disk" option will erase all partitions on the disk
+and install into the free space. All existing partitions will be
+erased.
+
+If no option is specified for an automated installation, the installer
+will attempt to use the following options in order: "overwrite",
+"use-free-space", "erase-non-oem" and "erase-entire-disk".
+
+######################################################################
+<install-mbr>true</install-mbr>
+<install-mbr>false</install-mbr>
+<install-mbr>auto</install-mbr>
+<install-mbr><install-mbr>
+
+Optional.
+
+Determines whether a new master boot record is installed on the target
+disk.
+
+The "auto" option will install a new master boot record unless an OEM
+master boot record is found on the target disk. (At present only Dell
+master boot records are detected.)
+
+Defaults to "auto" if no option is specified.
+
+######################################################################
+<network-interface mode="dhcp"></network-interface>
+<network-interface mode="static" address="10.0.0.1" netmask="255.255.255.0" gateway="10.0.0.2" dns="10.0.0.3"></network-interface>
+
+Configure the network device for use by the installer.
+Required for automated installs performed over the network.
+
+######################################################################
+<language>en-us</language>
+<language defer="true"></language>
+
+Sets the language for the installed system. The only language
+supported for this release is:
+
+    en-us    (English)
+
+If the "defer" option is specified, the user will be prompted to set
+the language on first boot.
+
+######################################################################
+<keyboard>us</keyboard>
+<keyboard defer="true"></keyboard>
+
+Used to set the keyboard layout. The following keyboard layouts are
+supported:
+
+    cn (China)
+    fr (France)
+    de (Germany)
+    it (Italy)
+    jp (Japan)
+    es (Spain)
+    ch (Switzerland)
+    gb (United Kingdom)
+    us (United States)
+
+If the "defer" option is specified, the user will be prompted to set
+the keyboard layout on first boot.
+
+######################################################################
+<password></password>
+<password>$1$GPuyWcYF$9THzAqZQku1cIo/2E81uU0</password>
+<password defer="true"></password>
+
+Used to set the system password. The value is assumed to be an
+MD5-based encrypted password. An empty password is allowed and will
+permit access without entering a password.
+
+If the "defer" option is specified, the system password will not be
+set, and the user will be prompted to set the password on first boot.
+
+The following command can be used to generate an encrypted password:
+
+    $ openssl passwd -1
+
+######################################################################
+<recovery-public-key>-----BEGIN PUBLIC KEY-----
+.
+.
+-----END PUBLIC KEY-----</recovery-public-key>
+
+<recovery-private-key>-----BEGIN RSA PRIVATE KEY-----
+.
+.
+-----END RSA PRIVATE KEY-----</recovery-private-key>
+
+Optional.
+These tags specify a public/private key pair which will enable the
+user to recover a forgotten password for an encrypted virtual disk.
+
+The following commands can be used to generate a public/private key
+pair with a passphrase:
+
+    $ openssl genrsa -des3 -out private_key 2048
+    $ openssl rsa -pubout -in private_key -out public_key
+
+######################################################################
+<enable-ssh>true</enable-ssh>
+<enable-ssh>false</enable-ssh>
+
+Optional.
+Enables external ssh access to dom0 for diagnostic purposes.
+
+Defaults to "false" is no option is specified.
+
+######################################################################
+<license-key></license-key>
+
+Optional.
+Used to supply the system license key.
+Not currently functional.
+
+######################################################################
+<vhds>
+  <vhd label="vhd1" compress="gzip">
+    <vhd-sources>
+      <vhd-source>dev://sda1/my.vhd.part1</vhd-source>
+      <vhd-source>dev://sda1/my.vhd.part2</vhd-source>
+    </vhd-sources>
+  </vhd>
+</vhds>
+
+Optional.
+
+Installs a precreated virtual hard disk on to the system.
+
+Each "vhd" block specifies a virtual hard disk to be installed. (At
+present only one virtual hard disk can be specified.) A new UUID
+(universally unique identifier) will be assigned to the virtual hard
+disk on installation.
+
+The "label" option specifies a unique label for the virtual hard disk
+which can be referenced in the "vms" block (see below). This label is
+only used during the installation process.
+
+The "vhd-source" tag specifies the source of the virtual hard disk
+image. Valid prefixes include "http://", "ftp://", "file://" and
+"dev://". Note that the image will be retrieved after partitioning the
+target disk, so if the "dev://" prefix is used, it must not refer to a
+partition which is erased during the installation process.
+
+If the "vhd-source" tag is specified multiple times, it is assumed
+that the image has been split into fragments (e.g. to work around a
+file size limit on the source filesystem) which must be concatenated
+to recover the original image.
+
+The "compress" option indicates that the image has been compressed.
+Valid values are "gzip" and "bzip2". If the image has also been split,
+it is assumed that the image was split after compression.
+
+######################################################################
+<vms>
+  <vm>
+    <vm-source>http://my.url/my-vm.db</vm-source>
+    <vm-vhds>
+      <vm-vhd index="0" label="vhd1"></vm-vhd>
+    <vm-vhds>
+  </vm>
+</vms>
+
+Optional.
+
+Installs a precreated virtual machine on to the system.
+
+Each "vm" block specifies a virtual machine to be installed. (At
+present only one virtual machine can be specified.) A new UUID will be
+assigned to the virtual machine on installation.
+
+The "vm-source" tag specifies the source of the configuration file
+for the virtual machine. Valid prefixes include "http://", "ftp://",
+"file://" and "dev://". Note that the file will be retrieved after
+partitioning the target disk, so if the "dev://" prefix is used, it
+must not refer to a partition which is erased during the installation
+process.
+
+The configuration file will automatically be updated to reflect the
+virtual machine's new UUID.
+
+The optional "vm-vhds" block allows the configuration file to be
+updated to reflect the new UUIDs of any virtual hard disks used by the
+virtual machine. Each "vm-vhd" tag specifies the index of the disk as
+listed within the configuration file and the label of the disk as
+specified in the "vhd" block (see above).
+
+######################################################################
+<skipready></skipready>
+
+Optional.
+If this tag is present, skip the "are you ready to install?"
+interactive screen.
+
+######################################################################
+<preinstall>#!/bin/ash
+touch /tmp/i.was.here
+</preinstall>
+
+Optional.
+Used to supply a script that will be executed prior to the install
+sequence being executed.
+Note that including answertags in the preinstall script may confuse
+the answerfile parser: caution advised.
+
+######################################################################
+<postinstall>#!/bin/ash
+touch /tmp/no.i.wasnt
+</postinstall>
+
+Optional.
+A post install script, executed at the end of a successful install
+sequence.

@@ -1,0 +1,188 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${MEASURED_LAUNCH_CONF}
+
+TPM_FUNCS=/usr/lib/tpm-scripts/tpm-functions
+if [ ! -f ${TPM_FUNCS} ]; then
+    echo "No tpm-function library found at ${TPM_FUNCS}.  ABORT" >&2
+    exit ${Abort}
+else
+    . ${TPM_FUNCS}
+fi
+
+CHECK_MSG="Checking availability of TXT & TPM."
+TPM_GAUGE=4
+TPM_GAUGE_STEP=16
+
+not_previous || exit ${Previous}
+
+# progress guage
+update_gauge() {
+    local msg="$1"
+    local percent=$2
+    interactive && dialog --mixedgauge "${msg}" 11 40 ${percent}
+}
+# dump attributes of the systems TPM into the log
+log_tpm_attrs() {
+    tpm_version >&2
+    if [ $? -ne 0 ]; then
+        echo "Error getting TPM Version data" >&2
+        return 1
+    fi
+    return 0
+}
+
+quirk_callback () {
+    interactive && dialog --ok-label Continue --msgbox "$1" 0 0
+}
+
+quirk_fatal_callback () {
+    interactive && dialog --ok-label Abort --msgbox "$1" 0 0
+}
+
+# detect quirks
+quirk_detect "quirk_callback" "quirk_fatal_callback"
+[ $? -ne 0 ] && {
+    echo "Platform has known a fatal quirk, exiting." >&2
+    exit 1
+}
+
+update_gauge "${CHECK_MSG}" ${TPM_GAUGE}
+tcsd_start || exit ${TpmDisabled}
+
+TPM_GAUGE=$((${TPM_GAUGE}+${TPM_GAUGE_STEP}))
+update_gauge "${CHECK_MSG}" ${TPM_GAUGE}
+# Detect if TPM is enabled. If it's not, there's little we can do beyond
+#   attempting to enable it.
+tpm_is_enabled
+case $? in
+    0)  TPM_ENABLED='true' ;;
+    1)  TPM_ENABLED='false' ;;
+    2)  echo "Can't determine if TPM is enabled" >&2
+        exit ${Abort}
+        ;;
+    *)  echo "tpm_is_enabled: This shouldn't happen!" >&2
+        exit ${Abort}
+        ;;
+esac
+
+# Detect if TPM is active. If it's not, there's little we can do beyond
+#   attempting to activate it.
+tpm_is_active
+case $? in
+    0)  TPM_STATE='active' ;;
+    1)  exit ${TpmInactive} ;;
+    2)  echo "can't tell if TPM is active?" >&2
+        exit ${Abort}
+        ;;
+    *)  echo "tpm_is_active: This shouldn't happen!" >&2
+        exit ${Abort}
+        ;;
+esac
+
+# Determine if the TPM has an EK
+tpm_has_ek
+case $? in 
+    0)  TPM_EK='true' ;;
+    1)  TPM_EK='false' ;;
+    2)  echo "can't tell if TPM has an EK?" >&2
+        exit ${Abort}
+        ;;
+    *)  echo "tpm_has_ek: This shouldn't happen!" >&2
+        exit ${Abort}
+        ;;
+esac
+
+# TPM is active. Now check to see if anyone has taken ownership of it.
+tpm_is_owned
+case $? in
+    0)  # should eventually be able to handle this through user interaction:
+        # password dialog etc
+        TPM_OWNED='true'
+        TPM_SRK='true'
+        exit ${TpmOwned}
+        ;;
+    1)  TPM_OWNED='false'
+        TPM_SRK='false'
+        ;;
+    2)  echo "can't tell if TPM is owned?" >&2
+        exit ${Abort}
+        ;;
+    *)  echo "tpm_is_owned: This shouldn't happen!" >&2
+        exit ${Abort}
+        ;;
+esac
+
+# determine if TPM owner password is WKS
+# this isn't really necessary yet since we error out if TPM is owned
+tpm_is_owner_wks
+case $? in
+    0)  TSS_WELL_KNOWN_SECRET='true' ;;
+    1)  # this is an error condition but since we refuse to continue
+        # if TPM is owned we won't get here ... yet
+        TSS_WELL_KNOWN_SECRET='false' ;;
+    2)  echo "can't tell if owner password is WKS" >&2
+        exit ${Abort}
+        ;;
+    *)  echo "tpm_is_owner_wks: This shouldn't happen!" >&2
+        exit ${Abort}
+        ;;
+esac
+
+TPM_GAUGE=$((${TPM_GAUGE}+${TPM_GAUGE_STEP}))
+update_gauge "${CHECK_MSG}" ${TPM_GAUGE}
+
+[ "${TPM_SRK}" = "true" ] && {
+    tpm_is_srk_wks
+    case $? in
+        0)  TPM_SRK_WKS='true' ;;
+        1)  TPM_SRK_WKS='false'
+            exit ${TpmBadSrk}
+            ;;
+        2)  echo "can't determine if SRK is WKS" >&2
+            exit ${Abort}
+            ;;
+        *) ;;
+    esac
+}
+
+TPM_GAUGE=$((${TPM_GAUGE}+${TPM_GAUGE_STEP}))
+update_gauge "${CHECK_MSG}" ${TPM_GAUGE}
+log_tpm_attrs || exit ${Abort}
+
+TPM_GAUGE=$((${TPM_GAUGE}+${TPM_GAUGE_STEP}))
+update_gauge "${CHECK_MSG}" ${TPM_GAUGE}
+mle_success || exit ${TxtFail}
+
+TPM_GAUGE=$((${TPM_GAUGE}+${TPM_GAUGE_STEP}))
+update_gauge "${CHECK_MSG}" ${TPM_GAUGE}
+
+TPM_GAUGE=$((${TPM_GAUGE}+${TPM_GAUGE_STEP}))
+update_gauge "${CHECK_MSG}" ${TPM_GAUGE}
+
+echo "TPM_STATE='${TPM_STATE}'" >> ${MEASURED_LAUNCH_CONF}
+echo "TPM_OWNED='${TPM_OWNED}'" >> ${MEASURED_LAUNCH_CONF}
+echo "TPM_SRK='${TPM_SRK}'" >> ${MEASURED_LAUNCH_CONF}
+echo "TPM_EK='${TPM_EK}'" >> ${MEASURED_LAUNCH_CONF}
+echo "TSS_WELL_KNOWN_SECRET='${TSS_WELL_KNOWN_SECRET}'" >> ${MEASURED_LAUNCH_CONF}
+echo "SRK_TSS_WELL_KNOWN_SECRET='${SRK_TSS_WELL_KNOWN_SECRET}'" >> ${MEASURED_LAUNCH_CONF}
+
+exit ${Continue}

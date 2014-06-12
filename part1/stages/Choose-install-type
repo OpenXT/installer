@@ -1,0 +1,141 @@
+#!/bin/ash
+#
+# Copyright (c) 2012 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${DETECT_REPO_CONF}
+
+rm -f ${OPTICAL_CONF}
+
+#------------------------------------------------------------------------------
+save_conf_and_exit()
+{
+    SOURCE_TYPE="$1"
+
+cat <<EOF > "${REPO_LOC_CONF}"
+REPO_LOC="$SOURCE_TYPE"
+EOF
+
+    case $SOURCE_TYPE in
+        "CD-ROM")         exit ${Optical} ;;
+        "Network")        exit ${Network} ;;
+        "Boot media")     exit ${BootMedia} ;;
+        "USB")            exit ${Usb} ;;
+        "iSCSI")          exit ${Iscsi};;
+        *)                exit ${Abort} ;;
+    esac
+}
+
+#------------------------------------------------------------------------------
+auto_detect()
+{
+    if [ "${DETECTED_REPO_COUNT}" = 1 ] ; then
+        echo "Installing using ${DETECTED_REPO_SOURCE}" >&2
+        save_conf_and_exit "$DETECTED_REPO_SOURCE"
+    else
+        if [ "${DETECTED_REPO_COUNT}" > 1 ] ; then
+            echo "Multiple repo locations detected: falling back to interactive menu mode.">&2 
+        elif [ "${DETECTED_REPO_COUNT}" = 0 ] ; then
+            echo "No repo location found: falling back to interactive menu mode.">&2 
+        fi
+
+        if ! interactive ; then
+            echo "Answerfile is missing <source> item and couldn't detect repo location: aborting.">&2
+            exit ${Abort}
+        fi
+    fi
+}
+
+if answerfile_specifies "source" ; then
+
+    # Parse the answerfile <source> tag
+    #
+    # <source type="url">http://www.foo.com/alpha/repo</source>
+    # <source type="local">
+    # <source type="nfs">
+    # <source type="harddisk">
+
+    SOURCE_TYPE=$(read_xml_attr "${ANSWERFILE}" "source" "type")
+    case ${SOURCE_TYPE} in
+
+    url|nfs)
+            not_previous || exit ${Previous}
+            exit ${Network}
+        ;;
+    usb)
+            not_previous || exit ${Previous}
+            exit ${Usb}
+        ;;
+    local)
+            not_previous || exit ${Previous}
+            exit ${Optical}
+        ;;
+    harddisk)
+            not_previous || exit ${Previous}
+            exit ${HardDisk}
+        ;;
+    bootmedia)
+            not_previous || exit ${Previous}
+            exit ${BootMedia}
+        ;;
+    iscsi)
+            not_previous || exit ${Previous}
+            exit ${Iscsi}
+        ;;
+    *)       echo "Unknown source type (${SOURCE_TYPE}) in answerfile: aborting.">&2
+             exit ${Abort}
+        ;;
+    esac
+else
+    echo "Detect repository location.">&2
+    auto_detect
+fi
+
+local ARG=
+ARG="${ARG} \"CD-ROM\" \"\"" 
+ARG="${ARG} \"Network\" \"\"" 
+
+if bootfs_includes_packages ; then
+    ARG="${ARG} \"Boot media\" \"\"" 
+else
+    ARG="${ARG} \"USB\" \"\"" 
+    ARG="${ARG} \"iSCSI\" \"\"" 
+fi
+
+    local CAPTURE=$(mktemp -t)
+    echo ${ARG} | xargs dialog --ok-label Select \
+                                --cancel-label Previous \
+                                --default-item "CD-ROM" \
+                                --menu "Select repository location" \
+                                7 40 0 2>${CAPTURE}
+    local OPT="$?"
+
+    if [ "${OPT}" != 0 ] ; then
+        rm -f ${CAPTURE}
+        [ "${OPT}" == 1 ]   && exit ${Abort}
+        [ "${OPT}" == 123 ] && exit ${Previous}
+        [ "${OPT}" == 124 ] && exit ${Previous}
+        exit ${Abort}
+    fi
+
+    SOURCE_TYPE=$(cat ${CAPTURE} 2>/dev/null)
+    rm -f ${CAPTURE}
+
+    save_conf_and_exit "$SOURCE_TYPE"
+
+exit ${Abort}

@@ -1,0 +1,91 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+if [ ! -r "${OPTICAL_CONF}" ] ; then
+    echo "Skipping eject as no optical device in use.">&2
+    not_previous || exit ${Previous}
+    exit ${Continue}
+fi
+
+# Defines ${OPTICAL_DEVICE} -:
+. "${OPTICAL_CONF}"
+
+# Prefix with /dev -:
+OPTICAL_DEV="/dev/${OPTICAL_DEVICE}"
+
+if [ ! -b "${OPTICAL_DEV}" ] ; then
+    echo "Skipping eject as device node ${OPTICAL_DEV} is missing.">&2
+    not_previous || exit ${Previous}
+    exit ${Continue}
+fi
+
+# Unconditionally unmount the device
+umount ${OPTICAL_DEV} 2>/dev/null
+
+# Ejection can be defined both in the answerfile and on the kernel command
+# line. It is not an interactive choice.
+#
+# Ejection will not be performed if the installation was not from local media.
+#
+# Ordering of priority: the kernel command line overrides the answerfile.
+
+# Default to no ejection:
+DO_EJECT=1 # 1: don't do it
+
+if answerfile_specifies "source" ; then
+    SOURCE_TYPE=$(read_xml_attr "${ANSWERFILE}" "source" "type")
+    if [ "x${SOURCE_TYPE}" != "xlocal" ] ; then
+        echo "Skipping eject as not installing from local media.">&2
+        not_previous || exit ${Previous}
+        exit ${Continue}
+    fi
+
+    EJECT=$(read_xml_attr "${ANSWERFILE}" "source" "eject" | tr [A-Z] [a-z])
+
+    if [ "x${EJECT}" = "xyes" ] || [ "x${EJECT}" = "xtrue" ] ; then
+        DO_EJECT=0 # 0: do it
+    else
+        echo "Skipping eject as answerfile <source> does not indicate eject=\"true\".">&2
+        DO_EJECT=1 # 1: don't do it
+    fi
+fi
+
+# Also check the repo location input
+if [  -e  ${REPO_LOC_CONF} ] ; then
+    . ${REPO_LOC_CONF}
+    if [ "x${REPO_LOC}" != "xCD-ROM" ] ; then
+        echo "Skipping eject as not installing from local media.">&2
+        not_previous || exit ${Previous}
+        exit ${Continue}
+    fi
+
+fi
+
+if grep 'eject_cdrom=1' /proc/cmdline >/dev/null 2>&1 ; then
+    DO_EJECT=0 # 1 on cmdline means _do_ eject, so 0 in shell
+fi
+if grep 'eject_cdrom=0' /proc/cmdline >/dev/null 2>&1 ; then
+    DO_EJECT=1 # 0 on cmdline means do _not_ eject, so 1 in shell
+fi
+
+[ "${DO_EJECT}" -ne 0 ] || do_cmd eject "${OPTICAL_DEV}"
+
+exit ${Continue}

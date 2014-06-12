@@ -1,0 +1,66 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+#-----------------------------------------------------------
+# Repository format:
+#
+# XC-REPOSITORY:
+#   xc:main
+#   pack:Base Pack
+#   product:XenClient
+#   build:<buildnum>
+#   version:<version>
+#   release:<release>
+#   upgrade-from:<release1> <release2>
+#   packages:<checksum of XC-PACKAGES file>
+#
+# XC-PACKAGES:
+#   dom0fs 55280767 c665cbb74c7f644fa5191adeb8664d37a0439ef9b1c39da40ef2e5a14a40d88b ext2bz2 required dom0-rootfs.i686.ext2.bz2 /
+#   uivmfs 71652385 bc43f3cfd7709bf4957d2f5482206d48fc664b28ddb0f3ad834b742a9aaebcab ext2bz2 required uivm-rootfs.i686.ext2.bz2 /storage/uivm/
+#   ndvmfs 71652385 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03 ext2bz2 required ndvm-rootfs.i686.ext2.bz2 /storage/ndvm/
+#
+#   <component> <file size> <file sha256sum> <file format> "required" <filename> <unpack dir>
+#
+# XC-SIGNATURE:
+#   <signature of XC-REPOSITORY file>
+#-----------------------------------------------------------
+
+REPOSITORY_FILENAME="XC-REPOSITORY"
+PKGDATA_FILENAME="XC-PACKAGES"
+SIGNATURE_FILENAME="XC-SIGNATURE"
+
+REPO_METADATA_FILENAMES="${REPOSITORY_FILENAME} ${PKGDATA_FILENAME} ${SIGNATURE_FILENAME}"
+
+iterate_over_packages()
+{
+    # looping over the packages to be installed.
+    PACKAGES_DIR="$1"
+    func_to_run="$2"
+    PKGDATA_FILE="${PACKAGES_DIR}/${PKGDATA_FILENAME}"
+    PKG_LINES="$(sed 's/ /,/g' <${PKGDATA_FILE})"
+    for LINE in ${PKG_LINES} ; do
+           COMPONENT="$(echo "${LINE}" | cut -f1 -d,)"
+        PACKAGE_TYPE="$(echo "${LINE}" | cut -f4 -d,)"
+            FILENAME="$(echo "${LINE}" | cut -f6 -d,)"
+         DESTINATION="$(echo "${LINE}" | cut -f7 -d,)"
+
+        "${func_to_run}" || return "$?"
+    done
+    return 0
+}

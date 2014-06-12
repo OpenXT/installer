@@ -1,0 +1,75 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+. ${DISK_CONF}
+# ^^^ defines ${TARGET_DISK}
+
+# Answerfile tags:
+#
+# <install-mbr>true</install-mbr>
+# <install-mbr>auto</install-mbr>
+# <install-mbr>false</install-mbr>
+# <install-mbr><install-mbr>
+
+mbr_in_whitelist()
+{
+    local MBR_CHECKSUM=$(dd "if=/dev/${TARGET_DISK}" bs=440 count=1 | \
+                         sha256sum | \
+                         sed 's/ .*//')
+
+    echo "MBR checksum: ${MBR_CHECKSUM}" >&2
+
+    grep -q "^${MBR_CHECKSUM} " "${MBR_WHITELIST}"
+}
+
+not_previous || exit ${Previous}
+
+if answerfile_specifies "install-mbr" ; then
+    INSTALL_MBR=$(read_xml_tag "${ANSWERFILE}" "install-mbr")
+
+    case "${INSTALL_MBR}" in
+        true|false|auto)
+            ;;
+
+        "")
+            INSTALL_MBR="auto"
+            ;;
+
+        *)
+            echo "ERROR: Answerfile specifies unknown value '${INSTALL_MBR}'" \
+                 "for <install-mbr> tag." >&2
+            exit ${Abort}
+    esac
+else
+    INSTALL_MBR="auto"
+fi
+
+if [ "${INSTALL_MBR}" = "auto" ] ; then
+    if mbr_in_whitelist ; then
+        INSTALL_MBR="false"
+    else
+        INSTALL_MBR="true"
+    fi
+fi
+
+echo "INSTALL_MBR='${INSTALL_MBR}'" > ${MBR_CONF}
+
+exit ${Continue}

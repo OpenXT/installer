@@ -1,0 +1,48 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${SCRIPT_DIR}/Functions/optical-media
+. ${SCRIPT_DIR}/Functions/supp-packs
+
+PACK="$(next_pack_to_install)"
+
+# FIXME: nail a better format of the repository file
+PACK_NAME="$(sed -n 's/^pack://p' "${PACK}/${REPOSITORY_FILENAME}")"
+
+. "${PACK}/pack.conf"
+
+# FIXME: if the pack is from a network repo, exit network source
+echo -e "\n\n"'FIXME: if network pack, exit ${NetworkSource}'"\n\n">&2
+
+if ! interactive ; then
+    echo -e "Aborting non-interactive installation: requires interactive insertion of extra disk.">&2
+    exit ${Abort}
+fi
+
+# Ensure the optical drive is available
+do_eject_disk
+
+# if pack is supplied as a CD:
+if [ "x${SOURCE_TYPE}" = "xlocal" ] && [ "x${SOURCE}" = "xsr0" ] ; then
+    dialog --ok-label "Continue" --colors --msgbox "\n Please insert this \ZbSupplemental Pack\ZB CD:\n\n ${PACK_NAME}\n" 9 47
+    OPT=$?
+    [ ${OPT} != 255 ] || exit ${Previous}
+fi
+exit ${Continue}

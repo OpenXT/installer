@@ -1,0 +1,37 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${SCRIPT_DIR}/Functions/subgraph
+
+not_previous || exit ${Previous}
+
+# Write the success indicator here, so that it persists on the target
+# filesystem.
+echo "INSTALL='Success'" >"${INSTALL_STATUS_CONF}"
+
+run_subgraph "preserve-data" <<EOF
+INSTALL_DATA_PART1='${INSTALL_DATA}'
+INSTALLER_LOG='${INSTALLER_LOG}'
+DOM0_CONFIGS_PART1='${DOM0_CONFIGS}'
+DOM0_SENSITIVE_CONFIGS_PART1='${DOM0_SENSITIVE_CONFIGS}'
+EOF
+
+OPT=$?
+exit ${OPT}

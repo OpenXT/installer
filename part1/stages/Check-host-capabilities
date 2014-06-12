@@ -1,0 +1,108 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+not_previous || exit ${Previous}
+
+if [ -z "$(which hvm-info)" ] ; then
+    echo "WARNING: Missing hvm-info tool: cannot inspect VTd and VTx.">&2
+    if interactive ; then
+        dialog --msgbox "\n      Missing tool to inspect VTd and VTx.\n
+      VTx is required to run ${PRODUCT_BRAND}.\n\n
+Please ensure this enabled in your BIOS configuration." 0 0
+    fi
+    OPT="$?"
+    [ "${OPT}" != 255 ] || exit ${Previous}
+    exit ${Continue}
+fi
+
+# return true if enabled
+check_vtx()
+{
+    hvm-info | grep '^hvm is enabled$' >/dev/null 2>&1
+}
+
+# return true if enabled
+check_vtd()
+{
+    hvm-info | grep '^hvm_directio is enabled$' >/dev/null 2>&1
+}
+
+msg=""
+warning=0
+
+# Log the test results to this data file. Erase to reinitialise it here.
+rm -f "${HOST_CAPABILITY_CONF}"
+
+if check_vtx; then
+    echo 'VTx="True"'  >>"${HOST_CAPABILITY_CONF}"
+
+    msg="VTx is enabled."
+
+    # VTd check is unreliable if VTx disabled, so test it here:
+    if check_vtd; then
+        msg="$msg\nVTd is enabled."
+    else
+        msg="$msg\nVTd is \Zbdisabled\ZB."
+    fi
+else
+    echo 'VTx="False"' >>"${HOST_CAPABILITY_CONF}"
+
+    # VTd check is unreliable if VTx disabled. Indicate skipped here:
+    msg="VTx is \Zbdisabled\ZB.\nSkipping VTd check as VTx disabled."
+
+    warning=1
+fi
+
+if check_vtd; then
+    echo 'VTd="True"'  >>"${HOST_CAPABILITY_CONF}"
+else
+    echo 'VTd="False"' >>"${HOST_CAPABILITY_CONF}"
+    warning=1
+fi
+echo ${msg} >&2
+
+if ! interactive ; then
+    [ "${warning}" -ne "1" ] || echo -e "\nWARNING: $msg Check the BIOS settings.\n">&2
+else
+    if [ "${warning}" -eq "1" ] ; then
+        DIALOGRC="${DIALOG_WARN_RC}" \
+            dialog --colors --yes-label "Continue" \
+                            --no-label  "Abort" \
+                   --yesno "$msg\n
+  \ZbYou should check your BIOS settings.\ZB\n
+\n
+VTx is required for ${PRODUCT_BRAND}.\n
+VTd enables high performance 3D graphics.\n
+\n
+To change BIOS settings:\n\n
+ 1. Reboot and enter the BIOS configuration.\n
+ 2. Ensure that both VTx and VTd are enabled.\n
+ 3. \ZbPower OFF the machine completely.\ZB\n
+\n" 0 0
+    OPT=$?
+    [ "${OPT}" != 255 ] || exit ${Previous}
+    [ "${OPT}" == 0 ]   || exit ${Abort}
+
+    echo "VTd turned off but continuing to install.">&2
+
+    fi
+fi
+
+exit ${Continue}

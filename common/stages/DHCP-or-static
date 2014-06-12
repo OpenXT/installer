@@ -1,0 +1,70 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+select_dhcp_or_static()
+{
+    if answerfile_specifies "network-interface" ; then
+
+        NIC_MODE=$(read_xml_attr "${ANSWERFILE}" "network-interface" "mode" | tr [A-Z] [a-z])
+
+        if [ "x${NIC_MODE}" = "xstatic" ] ; then
+            not_previous || return ${Previous}
+            return ${Static}
+
+        elif [ "x${NIC_MODE}" = "xdhcp" ] ; then
+            not_previous || return ${Previous}
+            return ${DHCP}
+
+        elif [ -z "${NIC_MODE}" ] && interactive ; then
+            ask_user_dhcp_or_static
+            OPT=$?
+            return ${OPT}
+
+        else
+            not_previous || return ${Previous}
+            echo "Answerfile <network-interface> missing \"mode\" element for DHCP or Static network address: assuming DHCP.">&2
+            return ${DHCP}
+        fi
+
+    elif ! interactive ; then
+        echo "ERROR: Answerfile does not specify whether DHCP or Static network address: assuming DHCP.">&2
+        return ${DHCP}
+
+    else
+        ask_user_dhcp_or_static
+        OPT=$?
+        return ${OPT}
+    fi
+}
+
+ask_user_dhcp_or_static()
+{
+    dialog --yes-label DHCP --no-label Static --yesno "   Configure network interface:\n\n         DHCP or Static?" 8 40
+    OPT=$?
+    [ "$OPT" != "0" ]   || return ${DHCP}
+    [ "$OPT" != "1" ]   || return ${Static}
+    [ "$OPT" != "255" ] || return ${Previous}
+    return ${Abort}
+}
+
+select_dhcp_or_static
+OPT=$?
+exit ${OPT}

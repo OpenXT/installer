@@ -1,0 +1,78 @@
+#!/bin/sh -e
+#
+# Copyright (c) 2014 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+#
+# Installs the collection of files that make up the OpenXT host installer.
+
+if [ $# -ne 2 -o \( "$1" != "part1" -a "$1" != "part2" \) ] ; then
+    echo "Usage: `basename $0` PART DESTDIR" >&2
+    echo "Installs part PART of the installer under DESTDIR" >&2
+    exit 1
+fi
+
+PART=$1
+DESTDIR=$2
+
+if [ ${PART} = "part1" ] ; then
+    install -d ${DESTDIR}
+
+    install -d ${DESTDIR}/answers
+    install -m 644 answers/*.ans ${DESTDIR}/answers/
+
+    install -d ${DESTDIR}/answers/doc
+    install -m 644 answers/doc/* ${DESTDIR}/answers/doc/
+    chmod 755 answers/doc/add-repository-to-initrd.sh
+
+    PARTDESTDIR=${DESTDIR}/${PART}
+    SCRIPTS="autostart-main autostart-status"
+else
+    PARTDESTDIR=${DESTDIR}
+    SCRIPTS="run upgrade"
+fi
+
+install -d ${PARTDESTDIR}
+install -m 755 common/run-graph ${PARTDESTDIR}/
+
+for i in ${SCRIPTS} ; do
+    install -m 755 ${PART}/$i ${PARTDESTDIR}/
+done
+
+install -d ${PARTDESTDIR}/config
+for i in common/config/* ${PART}/config/* ; do
+    if [ -f $i ] ; then
+        install -m 644 $i ${PARTDESTDIR}/config/
+    fi
+done
+
+install -d ${PARTDESTDIR}/stages
+for i in common/stages/* ${PART}/stages/* ; do
+    if [ -f $i ] ; then
+        install -m 755 $i ${PARTDESTDIR}/stages/
+    fi
+done
+
+chmod 644 ${PARTDESTDIR}/stages/functions
+chmod 644 ${PARTDESTDIR}/stages/*.graph
+
+install -d ${PARTDESTDIR}/stages/Functions
+for i in common/stages/Functions/* ${PART}/stages/Functions/* ; do
+    if [ -f $i ] ; then
+        install -m 644 $i ${PARTDESTDIR}/stages/Functions/
+    fi
+done

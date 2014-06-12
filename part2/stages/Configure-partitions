@@ -1,0 +1,517 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+. ${DISK_CONF}
+# ^^^ defines ${TARGET_DISK}
+
+#------------------------------------------------------------------------------
+
+scan_partitions()
+{
+    echo "Existing partition layout:" >&2
+    fdisk -ul "/dev/${TARGET_DISK}" >&2
+
+    PRIMARY_PARTITIONS=
+
+    local N
+    for N in 1 2 3 4 ; do
+        PRIMARY_PARTITIONS="${PRIMARY_PARTITIONS} ${TARGET_DISK}${N}"
+    done
+
+    EXISTING_PARTITIONS=
+    XC_PARTITION=
+    OEM_PARTITIONS=
+    OTHER_PARTITIONS=
+    HAVE_UNUSED_PARTITION=false
+    HAVE_FREE_SPACE=false
+
+    local P
+    for P in ${PRIMARY_PARTITIONS} ; do
+        if partition_exists "${P}" ; then
+            EXISTING_PARTITIONS="${EXISTING_PARTITIONS} ${P}"
+
+            if is_xc_partition "${P}" ; then
+                if [ "${XC_PARTITION}" ] ; then
+                    echo "ERROR: Found more than one ${PRODUCT_BRAND}" \
+                         "partition." >&2
+                    exit ${Abort}
+                fi
+
+                XC_PARTITION="${P}"
+            elif is_oem_partition "${P}" ; then
+                OEM_PARTITIONS="${OEM_PARTITIONS} ${P}"
+            else
+                OTHER_PARTITIONS="${OTHER_PARTITIONS} ${P}"
+            fi
+        else
+            if [ "${HAVE_UNUSED_PARTITION}" != "true" ] ; then
+                HAVE_UNUSED_PARTITION=true
+                disk_has_free_space "${P}" && HAVE_FREE_SPACE=true
+            fi
+        fi
+    done
+
+    echo "Partition scan results:" >&2
+    echo "    Existing primary partitions:${EXISTING_PARTITIONS}" >&2
+    echo "    Existing ${PRODUCT_BRAND} partition: ${XC_PARTITION}" >&2
+    echo "    OEM partitions:${OEM_PARTITIONS}" >&2
+    echo "    Other partitions:${OTHER_PARTITIONS}" >&2
+    echo "    Unused primary partition exists: ${HAVE_UNUSED_PARTITION}" >&2
+    echo "    Free space exists: ${HAVE_FREE_SPACE}" >&2
+}
+
+partition_exists()
+{
+    local PARTITION="$1"
+
+    [ -b "/dev/${PARTITION}" ]
+}
+
+is_xc_partition()
+{
+    local PARTITION="$1"
+
+    local PARTITION_TYPE=$(get_partition_type "${PARTITION}")
+    [ "${PARTITION_TYPE}" = "${XC_PARTITION_TYPE}" ] && return 0
+
+    local VG_NAME=$(get_vg_name "${PARTITION}")
+    [ "${VG_NAME}" = "xenclient" ] && return 0
+
+    return 1
+}
+
+is_oem_partition()
+{
+    local PARTITION="$1"
+    local PARTITION_TYPE=$(get_partition_type "${PARTITION}")
+
+    # Dell Utility Partition.
+    [ "${PARTITION_TYPE}" = "de" ] && return 0
+
+    # When installing from hard disk, the answer file may specify that the
+    # source partition should be treated as an OEM partition.
+    if [ "${EXTRA_OEM_PARTITIONS}" ] ; then
+        local P
+        for P in ${EXTRA_OEM_PARTITIONS} ; do
+            [ "${PARTITION}" = "${P}" ] && return 0
+        done
+    fi
+
+    return 1
+}
+
+get_partition_type()
+{
+    local PARTITION="$1"
+    local DISK=$(echo "${PARTITION}" | sed 's/[0-9]*$//')
+
+    fdisk -ul "/dev/${DISK}" |
+        grep "^/dev/${PARTITION} " |
+        sed 's/\*//' |
+        awk '{print $5}'
+}
+
+get_vg_name()
+{
+    local PARTITION="$1"
+
+    pvdisplay -c | grep "^ */dev/${PARTITION}:" | awk -F: '{print $2}'
+}
+
+disk_has_free_space()
+{
+    local PARTITION="$1"
+    local DISK=$(echo "${PARTITION}" | sed 's/[0-9]*$//')
+    local PARTITION_NUM=$(echo "${PARTITION}" | sed 's/^.*[a-z]//')
+
+    # Try creating primary partition, but don't write changes to disk.
+    OUTPUT=$(fdisk -u "/dev/${DISK}" <<EOF 2>&1
+n
+p
+${PARTITION_NUM}
+
+
+p
+q
+EOF
+    )
+
+    # Can partition be created?
+    echo "${OUTPUT}" | grep -q 'No free sectors available' && return 1
+
+    # Will partition be large enough?
+    FIRST_SECTOR=$(echo "${OUTPUT}" |
+                   grep "^/dev/${PARTITION}" |
+                   awk '{print $2}')
+
+    LAST_SECTOR=$(echo "${OUTPUT}" |
+                  grep "^/dev/${PARTITION}" |
+                  awk '{print $3}')
+
+    if [ -z "${FIRST_SECTOR}" -o -z "${LAST_SECTOR}" ] ; then
+        echo "ERROR: Failed to check for free space on disk '${DISK}'" >&2
+        exit 1
+    fi
+
+    # Use bc since the values may be outside the range of a 32-bit integer.
+    NUM_SECTORS=$(echo "${LAST_SECTOR} - ${FIRST_SECTOR} + 1" | bc)
+
+    echo "Free space:" >&2
+    echo "    First sector: ${FIRST_SECTOR}" >&2
+    echo "    Last sector: ${LAST_SECTOR}" >&2
+    echo "    Number of sectors: ${NUM_SECTORS}" >&2
+
+    # Use bc since the values may be outside the range of a 32-bit integer.
+    bc_greater_or_equal "${NUM_SECTORS}" "${MIN_PARTITION_SECTORS}"
+}
+
+#------------------------------------------------------------------------------
+
+get_partition_mode()
+{
+    if answerfile_specifies "partition-mode" ; then
+        not_previous || exit ${Previous}
+
+        PARTITION_MODE=$(read_xml_tag "${ANSWERFILE}" "partition-mode")
+
+        if [ "${PARTITION_MODE}" ] ; then
+            validate_partition_mode "${PARTITION_MODE}" "true"
+        else
+            PARTITION_MODE=$(get_default_partition_mode)
+
+            echo "Answerfile does not specify partitioning mode: defaulting" \
+                 "to '${PARTITION_MODE}'." >&2
+        fi
+    elif interactive ; then
+        prompt_for_partition_mode
+    else
+        not_previous || exit ${Previous}
+
+        PARTITION_MODE=$(get_default_partition_mode)
+
+        echo "Answerfile does not specify partitioning mode: defaulting" \
+             "to '${PARTITION_MODE}'." >&2
+    fi
+}
+
+prompt_for_partition_mode()
+{
+    local OVERWRITE="Overwrite existing ${PRODUCT_BRAND} installation"
+    local USE_FREE_SPACE="Install ${PRODUCT_BRAND} into free space"
+    local ERASE_NON_OEM="Erase all non-OEM partitions and install ${PRODUCT_BRAND}"
+    local ERASE_ENTIRE_DISK="Erase entire disk and install ${PRODUCT_BRAND}"
+
+    local UNIQUE_PARTITION_MODES=
+    local NUM_UNIQUE_PARTITION_MODES=0
+
+    local MODE
+    for MODE in "overwrite" \
+                "use-free-space" \
+                "erase-non-oem" \
+                "erase-entire-disk" ; do
+        if partition_mode_is_unique "${MODE}" ; then
+            UNIQUE_PARTITION_MODES="${UNIQUE_PARTITION_MODES} ${MODE}"
+            NUM_UNIQUE_PARTITION_MODES=$((NUM_UNIQUE_PARTITION_MODES + 1))
+        fi
+    done
+
+    echo "Unique partitioning modes:${UNIQUE_PARTITION_MODES}" >&2
+
+    if [ "${NUM_UNIQUE_PARTITION_MODES}" -eq 1 ] ; then
+        # Only one option. Don't display the menu.
+        not_previous || exit ${Previous}
+        PARTITION_MODE="${UNIQUE_PARTITION_MODES# }"
+        return 0
+    elif [ "${NUM_UNIQUE_PARTITION_MODES}" -eq 0 ] ; then
+        echo "ERROR: No unique partitioning modes found." >&2
+        exit ${Abort}
+    fi
+
+    local ARG=
+
+    for MODE in ${UNIQUE_PARTITION_MODES} ; do
+        case "${MODE}" in
+            overwrite)         ARG="${ARG} \"${OVERWRITE}\" \"\"" ;;
+            use-free-space)    ARG="${ARG} \"${USE_FREE_SPACE}\" \"\"" ;;
+            erase-non-oem)     ARG="${ARG} \"${ERASE_NON_OEM}\" \"\"" ;;
+            erase-entire-disk) ARG="${ARG} \"${ERASE_ENTIRE_DISK}\" \"\"" ;;
+            *)                 exit ${Abort} ;;
+        esac
+    done
+
+    local DEFAULT_PARTITION_MODE=$(get_default_partition_mode)
+    local CAPTURE=$(mktemp -t)
+
+    echo ${ARG} |
+        xargs dialog --ok-label Select \
+                     --cancel-label Previous \
+                     --default-item "${DEFAULT_PARTITION_MODE}" \
+                     --menu "Please select a partitioning scheme:" \
+                     7 60 0 2>${CAPTURE}
+    local OPT="$?"
+
+    if [ ${OPT} != 0 ] ; then
+        rm -f ${CAPTURE}
+        [ ${OPT} == 1 ]   && exit ${Abort}
+        [ ${OPT} == 123 ] && exit ${Previous}
+        [ ${OPT} == 124 ] && exit ${Previous}
+        exit ${Abort}
+    fi
+
+    case $(cat ${CAPTURE} 2>/dev/null) in
+        "${OVERWRITE}")         PARTITION_MODE="overwrite" ;;
+        "${USE_FREE_SPACE}")    PARTITION_MODE="use-free-space" ;;
+        "${ERASE_NON_OEM}")     PARTITION_MODE="erase-non-oem" ;;
+        "${ERASE_ENTIRE_DISK}") PARTITION_MODE="erase-entire-disk" ;;
+        *)                      exit ${Abort} ;;
+    esac
+
+    rm -f ${CAPTURE}
+    return 0
+}
+
+get_default_partition_mode()
+{
+    local MODE
+    for MODE in "overwrite" \
+                "use-free-space" \
+                "erase-non-oem" \
+                "erase-entire-disk" ; do
+        if partition_mode_is_unique "${MODE}" ; then
+            echo "${MODE}"
+            return 0
+        fi
+    done
+
+    echo "ERROR: No unique partitioning modes found." >&2
+    exit ${Abort}
+}
+
+validate_partition_mode()
+{
+    local MODE="$1"
+    local ABORT_IF_INVALID="$2"
+
+    case "${MODE}" in
+        overwrite)
+            if [ -z "${XC_PARTITION}" ] ; then
+                if [ "${ABORT_IF_INVALID}" = "true" ] ; then
+                    echo "ERROR: Cannot overwrite ${PRODUCT_BRAND}" \
+                         "installation on disk '${TARGET_DISK}': existing" \
+                         "${PRODUCT_BRAND} partition not found." >&2
+                    exit ${Abort}
+                else
+                    return 1
+                fi
+            fi
+            ;;
+
+        use-free-space)
+            if [ "${XC_PARTITION}" ] ; then
+                if [ "${ABORT_IF_INVALID}" = "true" ] ; then
+                    echo "ERROR: Cannot install into free space on disk" \
+                         "'${TARGET_DISK}': existing installation found." >&2
+                         "partition." >&2
+                    exit ${Abort}
+                else
+                    return 1
+                fi
+            fi
+
+            if [ "${HAVE_UNUSED_PARTITION}" != "true" ] ; then
+                if [ "${ABORT_IF_INVALID}" = "true" ] ; then
+                    echo "ERROR: Cannot install into free space on disk" \
+                         "'${TARGET_DISK}': all primary partitions in use." >&2
+                    exit ${Abort}
+                else
+                    return 1
+                fi
+            fi
+
+            if [ "${HAVE_FREE_SPACE}" != "true" ] ; then
+                if [ "${ABORT_IF_INVALID}" = "true" ] ; then
+                    echo "ERROR: Cannot install into free space on disk" \
+                         "'${TARGET_DISK}': no space to create new primary" \
+                         "partition." >&2
+                    exit ${Abort}
+                else
+                    return 1
+                fi
+            fi
+
+            return 0
+            ;;
+
+        erase-non-oem)
+            # Always valid (even if there are no OEM partitions).
+            ;;
+
+        erase-entire-disk)
+            # Always valid.
+            ;;
+
+        *)
+            echo "ERROR: Unknown partitioning mode '${MODE}'." >&2
+            exit ${Abort}
+            ;;
+    esac
+
+    return 0
+}
+
+partition_mode_is_unique()
+{
+    local MODE="$1"
+
+    validate_partition_mode "${MODE}" "false" || return 1
+
+    case "${MODE}" in
+        overwrite)
+            ;;
+
+        use-free-space)
+            ;;
+
+        erase-non-oem)
+            # Check if equivalent to "erase-entire-disk".
+            if [ -z "${OEM_PARTITIONS}" ] ; then
+                return 1
+            fi
+
+            # Check if equivalent to "overwrite".
+            if [ "${XC_PARTITION}" -a \
+                 -z "${OTHER_PARTITIONS}" -a \
+                 "${HAVE_FREE_SPACE}" != "true" ] ; then
+                return 1
+            fi
+
+            # Check if equivalent to "use-free-space".
+            if [ -z "${XC_PARTITION}" -a \
+                 "${HAVE_UNUSED_PARTITION}" = "true" -a \
+                 "${HAVE_FREE_SPACE}" = "true" ] ; then
+                return 1
+            fi
+            ;;
+
+        erase-entire-disk)
+            # Check if equivalent to "overwrite".
+            if [ "${XC_PARTITION}" -a \
+                 -z "${OEM_PARTITIONS}" -a \
+                 -z "${OTHER_PARTITIONS}" -a \
+                 "${HAVE_FREE_SPACE}" != "true" ] ; then
+                return 1
+            fi
+
+            # Check if equivalent to "use-free-space".
+            if [ -z "${XC_PARTITION}" -a \
+                 -z "${OEM_PARTITIONS}" -a \
+                 -z "${OTHER_PARTITIONS}" ] ; then
+                return 1
+            fi
+            ;;
+
+        *)
+            echo "ERROR: Unknown partitioning mode '${MODE}'." >&2
+            exit ${Abort}
+            ;;
+    esac
+
+    return 0
+}
+
+#------------------------------------------------------------------------------
+
+write_partition_conf()
+{
+    local PRESERVE_PARTITIONS=
+    local CREATE_XC_PARTITION=
+    local REMOVE_PARTITIONS=
+
+    case "${PARTITION_MODE}" in
+        erase-entire-disk)
+            PRESERVE_PARTITIONS=
+            CREATE_XC_PARTITION=true
+            ;;
+
+        erase-non-oem)
+            PRESERVE_PARTITIONS="${OEM_PARTITIONS}"
+            CREATE_XC_PARTITION=true
+            ;;
+
+        use-free-space)
+            PRESERVE_PARTITIONS="${EXISTING_PARTITIONS}"
+            CREATE_XC_PARTITION=true
+            ;;
+
+        overwrite)
+            PRESERVE_PARTITIONS="${EXISTING_PARTITIONS}"
+            CREATE_XC_PARTITION=false
+            ;;
+
+        *)
+            echo "ERROR: Invalid partitioning mode '${PARTITION_MODE}'." >&2
+            exit ${Abort}
+            ;;
+    esac
+
+    if [ "${CREATE_XC_PARTITION}" = "true" ] ; then
+        local P
+        for P in ${PRIMARY_PARTITIONS} ; do
+            if ! partition_in_list "${P}" "${PRESERVE_PARTITIONS}" ; then
+                XC_PARTITION="${P}"
+                break
+            fi
+        done
+    fi
+
+    local P
+    for P in ${EXISTING_PARTITIONS} ; do
+        if ! partition_in_list "${P}" "${PRESERVE_PARTITIONS}" ; then
+            REMOVE_PARTITIONS="${REMOVE_PARTITIONS} ${P}"
+        fi
+    done
+
+    echo "PARTITION_MODE='${PARTITION_MODE}'" > ${PARTITION_CONF}
+    echo "REMOVE_PARTITIONS='${REMOVE_PARTITIONS}'" >> ${PARTITION_CONF}
+    echo "CREATE_XC_PARTITION='${CREATE_XC_PARTITION}'" >> ${PARTITION_CONF}
+    echo "XC_PARTITION='${XC_PARTITION}'" >> ${PARTITION_CONF}
+}
+
+partition_in_list()
+{
+    local PARTITION="$1"
+    local PARTITION_LIST="$2"
+
+    local P
+    for P in ${PARTITION_LIST} ; do
+        [ "${P}" = "${PARTITION}" ] && return 0
+    done
+
+    return 1
+}
+
+#------------------------------------------------------------------------------
+
+scan_partitions
+get_partition_mode
+write_partition_conf
+
+exit ${Continue}

@@ -1,0 +1,67 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+# ^^^ sets ${DISK_CONF}
+
+if ! interactive ; then
+    not_previous || exit ${Previous}
+    exit ${Continue}
+fi
+
+. ${DISK_CONF} # defines ${TARGET_DISK}
+. ${PARTITION_CONF} # defines ${PARTITION_MODE}
+
+MODEL=$(cat /sys/block/${TARGET_DISK}/device/model)
+RAW_SIZE=$(cat /sys/block/${TARGET_DISK}/size)
+SIZE=$(pretty_size ${RAW_SIZE})
+
+case "${PARTITION_MODE}" in
+    overwrite)
+        PARTITION_TEXT="The existing ${PRODUCT_BRAND} installation on this disk will be overwritten. All other partitions on this disk will be preserved."
+        ;;
+    use-free-space)
+        PARTITION_TEXT="${PRODUCT_BRAND} will be installed into the available free space on this disk. All existing partitions on this disk will be preserved."
+        ;;
+    erase-non-oem)
+        PARTITION_TEXT="All non-OEM partitions on this disk will be erased and ${PRODUCT_BRAND} will be installed into the available space."
+        ;;
+        
+    erase-entire-disk)
+        PARTITION_TEXT="All data on this disk will be erased."
+        ;;
+
+    *)
+        exit ${Abort}
+        ;;
+esac
+
+dialog --yes-label Continue --no-label Abort --yesno \
+    "WARNING: About to install ${PRODUCT_BRAND} on this disk:
+
+    device:${TARGET_DISK} (${SIZE}, ${MODEL})
+
+$PARTITION_TEXT
+
+Do you wish to continue?" 13 60
+
+OPT=$?
+[ "$OPT" != "0" ]   || exit ${Continue}
+[ "$OPT" != "255" ] || exit ${Previous}
+exit ${Abort}

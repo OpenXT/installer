@@ -1,0 +1,6 @@
+Start,                        Continue:Status-welcome
+ErrorHandler,                 Continue:Status-welcome
+
+Status-welcome,               Continue:Status-report | Shutdown:Shutdown
+Status-report,                Continue:Status-welcome | StatusServer:Status-server
+Status-server,                Continue:Status-welcome

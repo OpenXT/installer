@@ -1,0 +1,139 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+# answerfile <source> tags:
+#
+# <source type="iscsi"></source>
+
+not_previous || exit ${Previous}
+
+[ -r ${ISCSI_REPO_CONF} ] || exit ${Abort}
+. ${ISCSI_REPO_CONF}
+# ^^^ defines ISCSI_TARGET_*
+
+#------------------------------------------------------------------------------
+connect_to_target()
+{
+    # Start iSCSI daemon, discover the LUNs on the target. If the specified
+    # LUN doesn't exists, raise an error and exit. Otherwise, login to the
+    # LUN and record the status
+
+    if [ !  -e  /etc/iscsi/initiatorname.iscsi ] ; then
+        sleep 1
+    fi
+
+    /etc/init.d/open-iscsi start >&2
+    OPT="$?"
+    
+    if [ "${OPT}" != 0 ] ; then
+        return 1 
+    fi
+
+    iscsiadm -m discovery -t sendtargets -p "${ISCSI_TARGET_IP}":"${ISCSI_TARGET_PORT}" >&2
+    OPT="$?"
+
+    if [ "${OPT}" != 0 ] ; then
+        return 1 
+    fi
+
+    if [ "${ISCSI_USE_CHAP}" -eq "1" ] ; then
+        iscsiadm -m node -T "${ISCSI_TARGET_IQN}" -p "${ISCSI_TARGET_IP}":"${ISCSI_TARGET_PORT}" -o update -n node.session.auth.authmethod -v CHAP >&2
+        OPT="$?"
+
+        if [ "${OPT}" != 0 ] ; then
+            return 1
+        fi
+
+        iscsiadm -m node -T "${ISCSI_TARGET_IQN}" -p "${ISCSI_TARGET_IP}":"${ISCSI_TARGET_PORT}" -o update -n node.session.auth.username -v "${ISCSI_CHAP_USER}" >&2
+        OPT="$?"
+
+        if [ "${OPT}" != 0 ] ; then
+            return 1
+        fi
+
+        iscsiadm -m node -T "${ISCSI_TARGET_IQN}" -p "${ISCSI_TARGET_IP}":"${ISCSI_TARGET_PORT}" -o update -n node.session.auth.password -v "${ISCSI_CHAP_PASSWORD}" >&2
+        OPT="$?"
+
+        if [ "${OPT}" != 0 ] ; then
+            return 1
+        fi
+    fi
+
+    iscsiadm -m node -T "${ISCSI_TARGET_IQN}" -p "${ISCSI_TARGET_IP}":"${ISCSI_TARGET_PORT}" --login >&2
+    OPT="$?"
+
+    if [ "${OPT}" != 0 ] ; then
+        return 1
+    fi
+
+    return 0 
+}
+
+#-----------------------------------------------------------
+get_block_dev()
+{
+    retval=1
+
+    for DEV in $(ls /sys/block | egrep -v '(^loop|^ramp|[0-9]$)') ; do
+        if /lib/udev/path_id "/block/${DEV}" | egrep -q "${ISCSI_TARGET_IP}"'.*'"${ISCSI_TARGET_IQN}" ; then
+            # Assumption - The isohybrid image is dd'ed on to the target unless ISCSI_PARTITION is specified
+            # in the answer file.
+            ISCSI_REPO_DEVICE="/dev/${DEV}"
+ 
+            if answerfile_specifies "iscsi_partition" ; then 
+                ISCSI_PARTITION=$(read_xml_tag "${ANSWERFILE}" "iscsi_partition")
+                ISCSI_REPO_DEVICE="${ISCSI_REPO_DEVICE}/${ISCSI_PARTITION}"
+            fi
+
+            retval=0
+            break
+        fi
+    done
+
+    return $retval
+}
+
+#-----------------------------------------------------------
+if ! connect_to_target ; then
+    echo "ERROR: Failed to connect to the iSCSI target: aborting." >&2
+    exit ${Abort}
+fi
+
+# Delay for the iSCSI LUN dev to appear in /sys/block
+sleep 1
+
+if ! get_block_dev ; then
+    echo "ERROR: Failed to find the iSCSI device name: aborting." >&2
+    exit ${Abort}
+fi
+
+# Rewrite the config with the iSCSI dev and without the CHAP password 
+cat <<EOF > "${ISCSI_REPO_CONF}"
+ISCSI_TARGET_IQN='${ISCSI_TARGET_IQN}'
+ISCSI_TARGET_IP='${ISCSI_TARGET_IP}'
+ISCSI_TARGET_PORT='${ISCSI_TARGET_PORT}'
+ISCSI_INITIATOR_NAME='${ISCSI_INITIATOR_NAME}'
+ISCSI_USE_CHAP='${ISCSI_USE_CHAP}'
+ISCSI_REPO_DEVICE='${ISCSI_REPO_DEVICE}'
+EOF
+
+exit ${Continue}
+

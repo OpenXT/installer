@@ -1,0 +1,47 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${SCRIPT_DIR}/Functions/install-main
+
+. ${INSTALL_MODE_CONF}
+# ^^^ defines INSTALL_MODE
+
+[ ! -r ${EXISTING_CONF} ] || . ${EXISTING_CONF}
+# ^^^ defines ${EXISTING_*}
+
+. ${REPOSITORY_CONF}
+# ^^^ defines REPOSITORY_VERSION, REPOSITORY_RELEASE and UPGRADEABLE_RELEASES
+
+TPM_FUNC=/usr/lib/tpm-scripts/tpm-functions
+[ ! -r ${TPM_FUNC} ] || . ${TPM_FUNC}
+[ ! -r ${MEASURED_LAUNCH_CONF} ] || . ${MEASURED_LAUNCH_CONF}
+
+if [ -z "${PACKAGES_DIR}" ] ; then
+    echo "ERROR: PACKAGES_DIR not set" >&2
+    exit ${Abort}
+fi
+
+if interactive ; then
+    dialog --infobox "\n\nActivating new installation..." 7 35
+fi
+
+commit_xc_packages "${PACKAGES_DIR}" || exit ${Abort}
+
+exit ${Continue}

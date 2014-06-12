@@ -1,0 +1,49 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${SCRIPT_DIR}/Functions/install-vhds
+. ${SCRIPT_DIR}/Functions/install-vms
+. ${DISK_CONF}
+. ${PARTITION_CONF}
+. ${MBR_CONF}
+. ${SCRIPT_DIR}/Functions/install-main
+
+TPM_FUNC=/usr/lib/tpm-scripts/tpm-functions
+[ ! -r ${TPM_FUNC} ] || . ${TPM_FUNC}
+[ ! -r ${MEASURED_LAUNCH_CONF} ] || . ${MEASURED_LAUNCH_CONF}
+
+if [ -z "${PACKAGES_DIR}" ] ; then
+    echo "ERROR: PACKAGES_DIR not set" >&2
+    exit ${Abort}
+fi
+
+mixedgauge "Installing ${PRODUCT_BRAND}." 0
+PERCENT=10
+
+# Installing dom0's rootfs mounts boot, config, root, log, storage
+apply_xc_packages "install" "${PACKAGES_DIR}" || exit ${Abort}
+
+install_vhds_and_vms || exit ${Abort}
+
+write_disk_mbr || exit ${Abort}
+
+mixedgauge "Finished." 100
+
+exit ${Continue}

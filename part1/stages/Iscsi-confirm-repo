@@ -1,0 +1,237 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+not_previous || exit ${Previous}
+
+unset ISCSI_TARGET_IP
+unset ISCSI_TARGET_IQN
+unset ISCSI_TARGET_PORT
+unset ISCSI_REPO_DEVICE
+unset ISCSI_INITIATOR_NAME
+unset ISCSI_USE_CHAP
+unset ISCSI_CHAP_USER
+unset ISCSI_CHAP_PASSWORD
+
+confirm_iscsi_target()
+{
+    rm -f "${ISCSI_REPO_CONF}"
+
+    # Install the kernel module to access iBFT.
+    modprobe iscsi_ibft >/dev/null 2>/dev/null
+
+    ibft_dir="/sys/firmware/ibft"
+    ibft_target="${ibft_dir}/target0"
+
+    if [ -d "${ibft_target}" ] ; then
+        ISCSI_TARGET_IP=$(cat "$ibft_target/ip-addr")
+        ISCSI_TARGET_IQN=$(cat "$ibft_target/target-name")
+        ISCSI_TARGET_PORT=$(cat "$ibft_target/port")
+      
+        if [ -e "${ibft_dir}/initiator/initiator-name" ] ; then
+            ISCSI_INITIATOR_NAME=$(cat "${ibft_dir}/initiator/initiator-name")
+        else
+            ISCSI_INITIATOR_NAME=`iscsi-iname`
+        fi
+    
+        echo "InitiatorName=${ISCSI_INITIATOR_NAME}" > "/etc/iscsi/initiatorname.iscsi"
+     
+        ISCSI_USE_CHAP=$(cat "$ibft_target/chap-type")
+    
+        if [ "${ISCSI_USE_CHAP}" == 1 ] ; then
+            ISCSI_CHAP_USER=$(cat "$ibft_target/chap-name")
+            ISCSI_CHAP_PASSWORD=$(cat "$ibft_target/chap-secret")
+        fi
+    else
+        ISCSI_TARGET_IP=""
+        ISCSI_TARGET_IQN=""
+        ISCSI_TARGET_PORT=""
+        ISCSI_USE_CHAP=0
+        ISCSI_CHAP_USER=""
+        ISCSI_CHAP_PASSWORD=""
+
+        ISCSI_INITIATOR_NAME=`iscsi-iname`
+        echo "InitiatorName=${ISCSI_INITIATOR_NAME}" > "/etc/iscsi/initiatorname.iscsi"
+    fi
+
+    #-----------------------------------------------------------
+    # Automatic install or prompt user for iSCSI details 
+    #-----------------------------------------------------------
+    PROMPT_USER=0 # assume yes
+
+    if [ ${PROMPT_USER} -eq 0 ] ; then
+        if ! interactive ; then
+            echo "Automatic install - Skipping the iSCSI target confirmation prompt.">&2
+        else
+            echo "Prompt iSCSI target details.">&2
+            do_interactive_iscsi_target
+            OPT=$?
+            [ ${OPT} -ne ${Continue} ] && return ${OPT}
+        fi
+    fi
+
+    return ${Continue}
+}
+
+#-----------------------------------------------------------
+do_edit_password()
+{
+    ITEM="$1"
+    VALUE="$2"
+    CAPTURE=$(mktemp -t)
+    show_cursor
+    dialog --insecure --clear --passwordbox "Please enter value for ${ITEM}" 0 40 "" 2>${CAPTURE}
+    OPT="$?"
+    hide_cursor
+    if [ ${OPT} != 0 ] ; then
+        rm -f ${CAPTURE}
+        [ ${OPT} != 1 ]   || return 0
+        [ ${OPT} != 255 ] || return 0
+        return 1
+    fi
+    VALUE=$(cat ${CAPTURE})
+    rm -f ${CAPTURE}
+    return 0
+}
+
+#-----------------------------------------------------------
+do_interactive_iscsi_target()
+{
+    while [ 1 ] ; do
+        CAPTURE=$(mktemp -t)
+        TITLE="iSCSI Configuration - Select item to edit or Continue:"
+        local ARG=
+
+#        ARG="TargetName ${ISCSI_TARGET_IQN} TargetIP ${ISCSI_TARGET_IP} TargetPort ${ISCSI_TARGET_PORT}" 
+
+        if [ "${ISCSI_USE_CHAP}" == 1 ] ; then
+            
+            if [ -n "${ISCSI_CHAP_PASSWORD}" ] ; then 
+                ISCSI_PRINT_PASSWORD="*******"
+            else   
+                ISCSI_PRINT_PASSWORD=""
+            fi
+            dialog --cancel-label Continue --ok-label Edit --menu "${TITLE}" 0 0 0 \
+                   "TargetName" "${ISCSI_TARGET_IQN}" \
+                   "TargetIP" "${ISCSI_TARGET_IP}" \
+                   "TargetPort" "${ISCSI_TARGET_PORT}" \
+                   "UseCHAP" "Yes" \
+                   "CHAPUser" "${ISCSI_CHAP_USER}" \
+                   "CHAPPassword" "${ISCSI_PRINT_PASSWORD}" 2>${CAPTURE}
+        else
+            dialog --cancel-label Continue --ok-label Edit --menu "${TITLE}" 0 0 0 \
+                   "TargetName" "${ISCSI_TARGET_IQN}" \
+                   "TargetIP" "${ISCSI_TARGET_IP}" \
+                   "TargetPort" "${ISCSI_TARGET_PORT}" \
+                   "UseCHAP" "No" 2>${CAPTURE}
+        fi
+
+        OPT="$?"
+        if [ "${OPT}" = 0 ] ; then
+            DUMMY=1 # no-op
+        elif [ "${OPT}" = 1 ] ; then
+            return ${Continue} # editing complete
+        elif [ "${OPT}" = 255 ] ; then
+            return ${Previous}
+        else
+            return ${Abort}
+        fi
+        ITEM=$(cat ${CAPTURE} 2>/dev/null)
+        rm -f ${CAPTURE}
+
+        case ${ITEM} in
+        "TargetName")
+                do_edit_item "${ITEM}" "${ISCSI_TARGET_IQN}" || return ${Abort}
+                ISCSI_TARGET_IQN="${VALUE}"
+            ;;
+        "TargetIP")
+                do_edit_item "${ITEM}" "${ISCSI_TARGET_IP}" || return ${Abort}
+                ISCSI_TARGET_IP="${VALUE}"
+            ;;
+        "TargetPort")
+                do_edit_item "${ITEM}" "${ISCSI_TARGET_PORT}" || return ${Abort}
+                ISCSI_TARGET_PORT="${VALUE}"
+            ;;
+        "UseCHAP")
+                dialog --yesno "\nUse CHAP to connect to iSCSI target?" 7 40
+                OPT="$?"
+                [ ${OPT} != 255 ] || return ${Abort}
+
+                if [ ${OPT} == 0 ]; then
+                    ISCSI_USE_CHAP="1"
+                else
+                    ISCSI_USE_CHAP="0"
+                fi
+            ;;
+        "CHAPUser")
+                do_edit_item "${ITEM}" "${ISCSI_CHAP_USER}" || return ${Abort}
+                ISCSI_CHAP_USER="${VALUE}"
+            ;;
+        "CHAPPassword")
+                do_edit_password "${ITEM}" "${ISCSI_CHAP_PASSWORD}" || return ${Abort}
+                ISCSI_CHAP_PASSWORD="${VALUE}"
+            ;;
+        esac
+    done
+}
+
+#-----------------------------------------------------------
+# To handle running autostart.sh manually
+erase_oldconfig()
+{
+    /etc/init.d/open-iscsi stop >/dev/null 2>/dev/null
+    rm -f /etc/iscsi/initiatorname.iscsi
+    rm -fr /etc/iscsi/nodes
+    rm -fr /etc/iscsi/send_targets
+}
+
+#-----------------------------------------------------------
+if answerfile_specifies "source" ; then
+    SOURCE_TYPE=$(read_xml_attr "${ANSWERFILE}" "source" "type")
+    
+    if [ "${SOURCE_TYPE}" != "iscsi" ] ; then
+        echo "ERROR: Installing from iSCSI target, but answerfile specifies" \
+             "source type '${SOURCE_TYPE}'." >&2
+        exit ${Abort}
+    fi
+else
+    if ! interactive ; then
+        echo "ERROR: No <source> in answerfile: aborting">&2
+        exit ${Abort}
+    fi
+fi
+
+erase_oldconfig
+
+confirm_iscsi_target
+OPT=$?
+
+cat <<EOF > "${ISCSI_REPO_CONF}"
+ISCSI_TARGET_IQN='${ISCSI_TARGET_IQN}'
+ISCSI_TARGET_IP='${ISCSI_TARGET_IP}'
+ISCSI_TARGET_PORT='${ISCSI_TARGET_PORT}'
+ISCSI_INITIATOR_NAME='${ISCSI_INITIATOR_NAME}'
+ISCSI_USE_CHAP='${ISCSI_USE_CHAP}'
+ISCSI_CHAP_USER='${ISCSI_CHAP_USER}'
+ISCSI_CHAP_PASSWORD='${ISCSI_CHAP_PASSWORD}'
+ISCSI_REPO_DEVICE="${ISCSI_REPO_DEVICE}"
+EOF
+
+exit ${OPT}

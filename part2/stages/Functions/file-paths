@@ -1,0 +1,125 @@
+#!/bin/ash
+#
+# Copyright (c) 2014 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+if [ -z "${GRAPH_CONF}" ] ; then
+    echo "ERROR: GRAPH_CONF not set" >&2
+    exit ${Abort}
+fi
+
+. "${GRAPH_CONF}"
+
+if [ -z "${INSTALL_ROOT}" ] ; then
+    echo "ERROR: INSTALL_ROOT not set" >&2
+    exit ${Abort}
+fi
+
+if [ -z "${MOUNT_ROOT}" ] ; then
+    echo "ERROR: MOUNT_ROOT not set" >&2
+    exit ${Abort}
+fi
+
+# Directory to write configuration data in the installer environment:
+INSTALL_DATA="${INSTALL_ROOT}/data"
+
+#-----------------------------------------------------------
+# Define the set of config files written by the install sequence.
+
+REPOSITORY_CONF="${INSTALL_DATA}/repository.conf"
+DISK_CONF="${INSTALL_DATA}/disk.conf"
+SSH_CONF="${INSTALL_DATA}/ssh.conf"
+MEASURED_LAUNCH_CONF="${INSTALL_DATA}/measured-launch.conf"
+TPM_OWNER_PASSWD_SSL="${INSTALL_DATA}/tpm-owner-passwd.ssl"
+INSTALL_MODE_CONF="${INSTALL_DATA}/install-mode.conf"
+RECOVERY_PUBLIC_KEY_CONF="${INSTALL_DATA}/recovery-public-key.conf"
+RECOVERY_PRIVATE_KEY_CONF="${INSTALL_DATA}/recovery-private-key.conf"
+RECOVERY_DISK_KEY_SSL="${INSTALL_DATA}/recovery-disk-key.ssl"
+PARTITION_CONF="${INSTALL_DATA}/partition.conf"
+VHD_CONF="${INSTALL_DATA}/vhd.conf"
+VM_CONF="${INSTALL_DATA}/vm.conf"
+MBR_CONF="${INSTALL_DATA}/mbr.conf"
+PRESERVED_DATA_CONF="${INSTALL_DATA}/preserved-data.conf"
+EXISTING_CONF="${INSTALL_DATA}/existing-install.conf"
+UIVM_GCONF_VHD_KEY="${INSTALL_DATA}/uivm-gconf,aes-xts-plain,256.key"
+
+#-----------------------------------------------------------
+# Filesystem paths
+
+INSTALL_CONFIG_DIR="${INSTALL_ROOT}/config"
+
+DISK_MODEL_BLACKLIST="${INSTALL_CONFIG_DIR}/disk-model-blacklist.txt"
+MBR_WHITELIST="${INSTALL_CONFIG_DIR}/mbr-whitelist.txt"
+
+# Copy of the MBR to write to the target disk
+MBR_BINARY="${INSTALL_CONFIG_DIR}/mbr.bin"
+
+# Dialog configuration files
+DIALOG_WARN_RC="${INSTALL_CONFIG_DIR}/dialog-warn.rc"
+DIALOG_CAUTION_RC="${INSTALL_CONFIG_DIR}/dialog-caution.rc"
+
+ROOT_DEV="/dev/xenclient/root"
+
+# Directory used to mount new dom0 filesystem:
+DOM0_MOUNT="${MOUNT_ROOT}/dom0"
+
+# Directory used to mount existing dom0 filesystem:
+EXISTING_DOM0_MOUNT="${MOUNT_ROOT}/dom0-existing"
+
+# Directories used to mount new service VM filesystems:
+UIVM_MOUNT="${MOUNT_ROOT}/uivm"
+NDVM_MOUNT="${MOUNT_ROOT}/ndvm"
+SYNCVM_MOUNT="${MOUNT_ROOT}/syncvm"
+
+# Directories used for temporary mounts:
+TEMP_DEV_MOUNT="${MOUNT_ROOT}/dev-temp"
+TEMP_NFS_MOUNT="${MOUNT_ROOT}/nfs-temp"
+TEMP_ROOTFS_MOUNT="${MOUNT_ROOT}/rootfs-temp"
+TEMP_CONFIG_MOUNT="${MOUNT_ROOT}/config-temp"
+
+UIVM_VHD="${DOM0_MOUNT}/storage/uivm/uivm.vhd"
+UIVM_GCONF_VHD="${DOM0_MOUNT}/storage/uivm/uivm-gconf.vhd"
+UIVM_SWAP_VHD="${DOM0_MOUNT}/storage/uivm/uivm-swap.vhd"
+NDVM_VHD="${DOM0_MOUNT}/storage/ndvm/ndvm.vhd"
+NDVM_SWAP_VHD="${DOM0_MOUNT}/storage/ndvm/ndvm-swap.vhd"
+SYNCVM_VHD="${DOM0_MOUNT}/storage/syncvm/syncvm.vhd"
+
+# Directory to archive install data and install log to in the target system
+# filesystem:
+PRESERVED_INSTALL_DIR="install"
+PRESERVED_UPGRADE_DIR="upgrade"
+
+# Directory to copy config files which will be used by dom0:
+PRESERVED_DOM0_CONFIG_DIR="config"
+
+# Directory in which earlier releases copied config files used by dom0:
+OLD_PRESERVED_DOM0_CONFIG_DIR="install/data"
+
+# Config files installed on the target filesystem for use by dom0. The second
+# set will be excluded from the archive of the install data so that only one
+# copy of them exists on the target filesystem.
+DOM0_CONFIGS="${SSH_CONF}"
+DOM0_SENSITIVE_CONFIGS="${RECOVERY_PUBLIC_KEY_CONF} ${RECOVERY_PRIVATE_KEY_CONF} ${RECOVERY_DISK_KEY_SSL} ${UIVM_GCONF_VHD_KEY} ${TPM_OWNER_PASSWD_SSL}"
+
+#-----------------------------------------------------------
+# Temporary files lasting installation time
+PASSWORD_HASH="/tmp/password"
+PASSWORD_DEFERRED="/tmp/defer_password"
+CONFIG_KEY="/tmp/config-lv.key"
+LOG_KEY="/tmp/log-lv.key"
+CORES_KEY="/tmp/cores-lv.key"
+DEVICE_KEY="/tmp/device.key"

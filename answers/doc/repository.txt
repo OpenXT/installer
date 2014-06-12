@@ -1,0 +1,43 @@
+######################################################################
+OpenXT repository structure
+######################################################################
+
+The OpenXT software is read from a structured repository, that is
+a directory named "packages.main" containing three metadata files:
+
+"XC-REPOSITORY" contains the version information of the software.
+It currently has eight lines:
+1: "xc:main" to identify this as the main install repository.
+2: "pack:Base Pack" as a human readable identity string.
+3: "product:XenClient" as another human readable identity string.
+4: "build:${BuildID}" to indicate the software version.
+5: "version:${Version}" to indicate the software version.
+6: "release:${Release}" to indicate the software version.
+7: "upgrade-from:${Releases}" to indicate the previous software versions from
+   which upgrade is allowed.
+8: "packages:${Checksum}" as a SHA256 checksum of the "XC-PACKAGES" file.
+
+"XC-PACKAGES" lists the individual package files contained in the
+packages.main directory that are to be installed.
+
+Each line of the packages file contains the following data:
+
+<component id> <file size> <sha256sum> <package format> [required|optional] <filename> <destination dir>
+
+eg:
+dom0 15280767 c665cbb74c7f644fa5191adeb8664d37a0439ef9b1c39da40ef2e5a14a40d88b ext2bz2 required dom0-rootfs.i686.ext2.bz2 /
+
+The itemization of the repository contents enables verification
+of the integrity of the package files during installation.
+
+"XC-SIGNATURE" contains a signature of the "XC-REPOSITORY" file.
+
+The signature, together with the checksum of the "XC-PACKAGES" file
+in the "XC-REPOSITORY" file, enable verification of the integrity of
+the metadata files.
+
+The packages.main directory is at the top level of the installation
+ISO. This directory can be copied to a http, ftp or NFS server to
+enable network installation by providing the network location to
+the installer. When supplying the location to the installer, the
+"packages.main" suffix must be omitted.

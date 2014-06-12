@@ -1,0 +1,45 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+not_previous || exit ${Previous}
+
+# Defines ${OPTICAL_DEVICE} -:
+. "${OPTICAL_CONF}"
+
+if [ ! -e "${NEXT_PACK_CONF}" ] ; then
+    echo -e "SOURCE='${OPTICAL_DEVICE}'\nSOURCE_TYPE='local'\nSOURCE_VERIFY='unknown'">"${NEXT_PACK_CONF}"
+fi
+
+# Read how many extra packs we've preprocessed so far:
+COUNT_SO_FAR="$(ls -1 ${EXTRA_DATA_SEQUENCE} 2>/dev/null | sort -n | tail -1)"
+[ ! -z "${COUNT_SO_FAR}" ] || COUNT_SO_FAR=0
+
+# Increment pack count and record the metadata of this pack:
+PACK_SEQ=$(( COUNT_SO_FAR + 1 ))
+mkdir "${EXTRA_DATA_SEQUENCE}/${PACK_SEQ}"
+
+cp "${NEXT_PACK_CONF}" "${EXTRA_DATA_SEQUENCE}/${PACK_SEQ}/pack.conf"
+
+for FILE in ${REPO_METADATA_FILENAMES} ; do
+    cp "${OPTICAL_MOUNT}/${PACKAGES_DOT_EXTRA}/${FILE}" \
+       "${EXTRA_DATA_SEQUENCE}/${PACK_SEQ}/"
+done
+
+exit ${Continue}

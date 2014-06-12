@@ -1,0 +1,75 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${SCRIPT_DIR}/Functions/optical-media
+
+# This script selects and records the optical device 
+# containing the installation package repository.
+
+#------------------------------------------------------------
+rm -f "${OPTICAL_CONF}"
+
+DO_VERIFY="ask_or_yes"
+
+if answerfile_specifies "source" ; then
+    # Parse the answerfile <source> tag
+    #
+    # <source type="local" eject="true" verify="yes">sr0</source>
+
+    # Only support verification of local media
+    SOURCE_TYPE=$(read_xml_attr "${ANSWERFILE}" "source" "type")
+    if [ "x${SOURCE_TYPE}" != "xlocal" ] ; then
+        not_previous || exit ${Previous}
+        exit ${Continue}
+    fi
+
+    SOURCE_DEVICE=$(read_xml_tag "${ANSWERFILE}" "source")
+    if [ -z "${SOURCE_DEVICE}" ] ; then
+        # warning, not fatal:
+        echo "Answerfile <source type=local> did not specify device so will scan.">&2
+        locate_cdrom "${PACKAGES_DOT_MAIN}"
+        RET=$?
+        [ ${RET} = 0 ] || exit ${RET}
+    else
+        OPTICAL_DEVICE="${SOURCE_DEVICE}"
+    fi
+
+    # read the 'verify' element if present
+    VERIFY=$(read_xml_attr "${ANSWERFILE}" "source" "verify" | tr [A-Z] [a-z])
+
+    # false/no: don't ask, don't verify
+    if [ "x${VERIFY}" = "xno" ] || [ "x${VERIFY}" = "xfalse" ] ; then
+        DO_VERIFY="no"
+
+    # true/yes: don't ask, always verify
+    elif [ "x${VERIFY}" = "xyes" ] || [ "x${VERIFY}" = "xtrue" ] ; then
+        DO_VERIFY="yes"
+    fi
+else
+    locate_cdrom "${PACKAGES_DOT_MAIN}"
+    RET=$?
+    [ ${RET} = 0 ] || exit ${RET}
+fi
+
+echo "OPTICAL_DEVICE=${OPTICAL_DEVICE}">"${OPTICAL_CONF}"
+echo "OPTICAL_VERIFY=${DO_VERIFY}">>"${OPTICAL_CONF}"
+
+not_previous || exit ${Previous}
+exit ${Continue}

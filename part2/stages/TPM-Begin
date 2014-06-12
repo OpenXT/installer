@@ -1,0 +1,49 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+PROBE_MSG="Probing TPM & Intel TXT capabilities"
+
+rm -rf ${MEASURED_LAUNCH_CONF}
+
+if answerfile_specifies "measure-launch"; then
+    not_previous || exit ${Previous}
+    MEASURE_LAUNCH=$(read_xml_tag "${ANSWERFILE}" "measure-launch")
+elif ! interactive; then
+    # default is to NOT configure measured launch
+    MEASURE_LAUNCH="false"
+else
+    dialog --ok-label "Yes" --cancel-label "No" --yesno \
+        "\nDo you wish to configure ${PRODUCT_BRAND} Measured Launch?" 7 58
+
+    OPT=$?
+    [ $OPT -ne 255 ] || exit ${Previous}
+    if [ $OPT -eq 0 ]; then
+        MEASURE_LAUNCH="true"
+    else
+        MEASURE_LAUNCH="false"
+    fi
+fi
+echo "MEASURE_LAUNCH='${MEASURE_LAUNCH}'" > ${MEASURED_LAUNCH_CONF}
+if [ "${MEASURE_LAUNCH}" = "true" ]; then
+    exit ${Continue}
+else
+    exit ${Abort}
+fi

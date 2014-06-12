@@ -1,0 +1,179 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+#------------------------------------------------------------
+list_cdrom_devices()
+{
+    sed -ne 's/^drive name:\s*//p' </proc/sys/dev/cdrom/info 2>/dev/null
+}
+
+#------------------------------------------------------------
+dev_provides_repo()
+{
+    CD_DEV="/dev/$1"
+    REPO_NAME="$2"
+    FOUND=1
+    do_mount "${CD_DEV}" "${TEMP_OPTICAL_MOUNT}" || return 1
+    # Test for existence of the repository directory:
+    [ ! -e "${TEMP_OPTICAL_MOUNT}/${REPO_NAME}" ] || FOUND=0
+    do_umount "${TEMP_OPTICAL_MOUNT}" || return 1
+    [ ${FOUND} -ne 1 ] || return 1
+    return 0
+}
+
+#------------------------------------------------------------
+locate_cdrom()
+{
+    REPOSITORY_NAME="$1"
+
+    DEVICES=$(list_cdrom_devices)
+    DEV_COUNT=0
+    for DEV in ${DEVICES} ; do
+        DEV_COUNT=$((DEV_COUNT + 1))
+    done
+
+    case "${DEV_COUNT}" in
+    0)
+        echo "ERROR: Cannot identify -any- CD-Rom devices.">&2
+        if interactive ; then
+            dialog --colors --ok-label "Continue" --msgbox \
+"    \ZbERROR: Cannot locate any optical media device\ZB
+
+If this computer has an optical media device, please check in
+your BIOS configuration that the SATA controller is set up to
+use AHCI mode.
+
+Otherwise, please select an alternative method of installation." 12 67
+        fi
+        return ${LocateFail}
+        ;;
+    1)
+        OPTICAL_DEVICE="${DEVICES}"
+        echo "Selecting sole CD-Rom device: ${OPTICAL_DEVICE}">&2
+        ;;
+    *)
+        # Multiple CD-Rom devices
+        # Ideally we'd identify the one we booted off, but instead
+        # we'll just search for repositories. If we find multiple,
+        # we could do version checking of repo vs. installer, but
+        # instead we're going to insist on user intervention.
+        REPO_DEVICES=""
+        REPO_COUNT=0
+        for DEV in ${DEVICES} ; do
+            # Check for the packages.main directory:
+            if dev_provides_repo "${DEV}" "${REPOSITORY_NAME}" ; then
+                REPO_DEVICES="${REPO_DEVICES}${REPO_DEVICES:+ }${DEV}"
+                REPO_COUNT=$((REPO_COUNT + 1))
+            fi
+        done
+        case "${REPO_COUNT}" in
+        0)
+            echo "ERROR: Multiple CD-Rom devices but cannot locate a repository.">&2
+            if interactive ; then
+                dialog --colors --ok-label "Continue" --msgbox \
+    "    \ZbERROR: Cannot find optical media device repository\ZB
+
+      Please check your media or installation method." 8 65
+            fi
+            return ${LocateFail}
+            ;;
+        1)
+            OPTICAL_DEVICE="${REPO_DEVICES}"
+            echo "Selecting CD-Rom device: ${OPTICAL_DEVICE}">&2
+            ;;
+        *)
+            echo "ERROR: Multiple CD-Rom devices and MULTIPLE repositories found.">&2
+            if interactive ; then
+                dialog --colors --ok-label "Continue" --msgbox \
+    '    \ZbERROR: Cannot determine which repository to use!\ZB
+
+      Please eject your unnecessary media.' 8 60
+            fi
+            return ${LocateFail}
+            ;;
+
+        esac
+        ;;
+    esac
+    return 0
+}
+
+#------------------------------------------------------------
+do_mount_optical_media()
+{
+    not_previous || return ${Previous}
+
+    . ${OPTICAL_CONF}
+
+    OPTICAL_DEV="/dev/${OPTICAL_DEVICE}"
+
+    if mount | grep -q "^${OPTICAL_DEV} on ${OPTICAL_MOUNT} type" ; then
+        return ${Continue}
+    fi
+
+    # A precautionary umount, failure here is fine
+    do_umount "${OPTICAL_MOUNT}" 2>/dev/null
+
+    mixedgauge "Mounting optical device." 30
+
+    do_mount ${OPTICAL_MOUNTOPTIONS} "${OPTICAL_DEV}" "${OPTICAL_MOUNT}" || return ${MountFail}
+
+    # A successful mount resets the bad mount counter
+    rm -f "${BAD_MOUNT_CONF}"
+
+    mixedgauge "Mounted optical device." 100
+
+    return ${Continue}
+}
+
+#------------------------------------------------------------
+do_eject_disk()
+{
+    not_previous || return ${Previous}
+
+    if [ ! -r "${OPTICAL_CONF}" ] ; then
+        echo "Skipping eject as no optical device in use.">&2
+        return ${Continue}
+    fi
+
+    # Defines ${OPTICAL_DEVICE} -:
+    . "${OPTICAL_CONF}"
+
+    # Prefix with /dev -:
+    OPTICAL_DEV="/dev/${OPTICAL_DEVICE}"
+
+    if [ ! -b "${OPTICAL_DEV}" ] ; then
+        echo "Skipping eject as device node ${OPTICAL_DEV} is missing.">&2
+        return ${Continue}
+    fi
+
+    # Unconditionally unmount the device
+    umount ${OPTICAL_DEV} 2>/dev/null
+
+    # Remove now-stale optical config file
+    rm "${OPTICAL_CONF}"
+
+    if interactive ; then
+        dialog --colors --ok-label Continue --msgbox "\n     Press \Zb[Enter]\ZB to eject CD." 7 40
+    fi
+
+    # Fire!
+    do_cmd eject "${OPTICAL_DEV}"
+    return ${Continue}
+}

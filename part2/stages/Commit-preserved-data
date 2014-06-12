@@ -1,0 +1,51 @@
+#!/bin/ash
+#
+# Copyright (c) 2014 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+. "${PRESERVED_DATA_CONF}"
+
+for FILE in ${ALL_DOM0_CONFIGS} ; do
+    do_cmd rm -f "${FILE}"
+    do_cmd mv "${FILE}.new" "${FILE}" || exit ${Abort}
+done
+
+# FIXME: Temporary hack to test out the approach of writing config files for
+# dom0 first boot to /config/install rather than /boot/system/config.
+. "${INSTALL_MODE_CONF}"
+
+if [ "${INSTALL_MODE}" = "fresh" ] ; then
+    . ${SCRIPT_DIR}/Functions/install-main
+
+    mount_config || exit ${Abort}
+    do_cmd mkdir -p "${DOM0_MOUNT}/config/install" || exit ${Abort}
+
+    for FILE in ${ALL_DOM0_CONFIGS} ; do
+        case $(basename "${FILE}") in
+            recovery-*-key.conf|recovery-disk-key.ssl|tpm-owner-passwd.ssl)
+                ;;
+            *)
+                do_cmd mv "${FILE}" "${DOM0_MOUNT}/config/install" || \
+                    exit ${Abort}
+                ;;
+        esac
+    done
+fi
+
+exit ${Continue}

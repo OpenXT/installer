@@ -1,0 +1,17 @@
+<interactive>false</interactive>
+<preinstall>#!/bin/ash
+touch /tmp/preinstall.touch
+</preinstall>
+<eula accept="yes"></eula>
+<mode>fresh</mode>
+<source type="url">http://192.168.1.7/</source>
+<primary-disk>sda</primary-disk>
+<partition-mode>erase-entire-disk</partition-mode>
+<network-interface mode="dhcp"></network-interface>
+<keyboard>us</keyboard>
+<password>*</password>
+<enable-ssh>false</enable-ssh>
+<license-key>you-can-call-me-al</license-key>
+<postinstall>#!/bin/ash
+touch /tmp/postinstall.touch
+</postinstall>

@@ -1,0 +1,138 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+#------------------------------------------------------------------------------
+# Answerfile tags:
+#
+#     <vhds>
+#       <vhd label="vhd1">
+#         <vhd-sources>
+#           <vhd-source>http://my.url/first.vhd</vhd-source>
+#         </vhd-sources>
+#       </vhd>
+#       <vhd label="vhd2">
+#         <vhd-sources>
+#           <vhd-source>http://my.url/second.vhd.part1</vhd-source>
+#           <vhd-source>http://my.url/second.vhd.part2</vhd-source>
+#         </vhd-sources>
+#       </vhd>
+#       <vhd label="vhd3" compress="gzip">
+#         <vhd-sources>
+#           <vhd-source>http://my.url/third.vhd.gz</vhd-source>
+#         </vhd-sources>
+#       </vhd>
+#     </vhds>
+#
+# Currently this script only supports one <vhd> block with the <vhds> block.
+#------------------------------------------------------------------------------
+
+rm -f ${VHD_CONF}
+
+not_previous || exit ${Previous}
+
+read_vhds()
+{
+    local VHD_COUNT=0
+    local VHD_FROM_NETWORK="false"
+
+    if answerfile_specifies "vhds" ; then
+        local VHD_HANDLE=$(answerfile_xml_loop "vhds" "vhd")
+
+        while [ "${VHD_HANDLE}" ] ; do
+            VHD_COUNT=$((VHD_COUNT + 1))
+
+            local VHD_UUID=$(cat /proc/sys/kernel/random/uuid)
+            local VHD_LABEL=$(read_xml_loop_attr "${VHD_HANDLE}" "label")
+            local VHD_COMPRESS=$(read_xml_loop_attr "${VHD_HANDLE}" "compress")
+
+            validate_vhd_compress "${VHD_COMPRESS}"
+
+            cat <<EOF >> ${VHD_CONF}
+VHD_${VHD_COUNT}_UUID='${VHD_UUID}'
+VHD_${VHD_COUNT}_LABEL='${VHD_LABEL}'
+VHD_${VHD_COUNT}_COMPRESS='${VHD_COMPRESS}'
+EOF
+
+            read_vhd_sources "${VHD_HANDLE}" "${VHD_COUNT}"
+
+            VHD_HANDLE=$(answerfile_xml_loop_next "${VHD_HANDLE}")
+        done
+    fi
+
+    cat <<EOF >> ${VHD_CONF}
+VHD_COUNT='${VHD_COUNT}'
+VHD_FROM_NETWORK='${VHD_FROM_NETWORK}'
+EOF
+
+    if [ "${VHD_COUNT}" -gt 1 ] ; then
+        echo "ERROR: Answerfile specifies more than one VHD; this is not" \
+             "currently supported." >&2
+        exit ${Abort}
+    fi
+}
+
+validate_vhd_compress()
+{
+    local VHD_COMPRESS="$1"
+
+    case "${VHD_COMPRESS}" in
+        gzip|bzip2|"")
+            ;;
+
+        *)
+            echo "ERROR: Answerfile specifies invalid compression type" \
+                 "'${VHD_COMPRESS}' for VHD." >&2
+            exit ${Abort}
+            ;;
+    esac
+}
+
+read_vhd_sources()
+{
+    local VHD_HANDLE="$1"
+    local VHD_COUNT="$2"
+
+    local VHD_SOURCE_COUNT=0
+    # TODO: revisit this when adding support for more than one VHD.
+    local VHD_SOURCE_HANDLE=$(answerfile_xml_loop "vhd-sources" "vhd-source")
+
+    while [ "${VHD_SOURCE_HANDLE}" ] ; do
+        VHD_SOURCE_COUNT=$((VHD_SOURCE_COUNT + 1))
+
+        VHD_SOURCE=$(read_xml_loop_element "${VHD_SOURCE_HANDLE}")
+
+        fetch_requires_network "${VHD_SOURCE}" && VHD_FROM_NETWORK="true"
+
+        cat <<EOF >> ${VHD_CONF}
+VHD_${VHD_COUNT}_SOURCE_${VHD_SOURCE_COUNT}='${VHD_SOURCE}'
+EOF
+
+        VHD_SOURCE_HANDLE=$(answerfile_xml_loop_next "${VHD_SOURCE_HANDLE}")
+    done
+
+    cat <<EOF >> ${VHD_CONF}
+VHD_${VHD_COUNT}_SOURCE_COUNT='${VHD_SOURCE_COUNT}'
+EOF
+}
+
+read_vhds
+
+exit ${Continue}

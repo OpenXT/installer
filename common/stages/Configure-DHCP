@@ -1,0 +1,68 @@
+#!/bin/ash
+#
+# Copyright (c) 2012 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+
+configure_dhcp()
+{
+    not_previous || return ${Previous}
+
+    . ${NETWORK_NIC_CONF} # defines ${NIC}
+
+    rm -f "${NETWORK_STATUS_CONF}"
+
+    #-----------------------------------------------------------
+    # Apply the configuration:
+    #-----------------------------------------------------------
+
+    mixedgauge "Obtaining IP address..." 30
+
+    if ! apply_dhcp_config_to_nic ; then
+        echo "Failure when bringing up ${NIC}.">&2
+        if interactive ; then
+            hide_cursor
+            do_cmd dialog --ok-label Continue --msgbox "\nError: failed to obtain IP address." 7 40
+            return ${NoAddress}
+        fi
+    fi
+
+    echo "NETWORK_ENABLED='True'"> "${NETWORK_STATUS_CONF}"
+    return ${Continue}
+}
+
+apply_dhcp_config_to_nic()
+{
+    ifdown -a >&2
+
+    echo >/etc/network/interfaces "# Configure loopback
+auto lo
+iface lo inet loopback
+# Configure ${NIC}
+auto ${NIC}
+iface ${NIC} inet dhcp
+    udhcpc_opts -T5 -t10"
+
+    ifup -a >&2 || return 1
+
+    return 0
+}
+
+configure_dhcp
+OPT=$?
+exit ${OPT}

@@ -1,0 +1,74 @@
+#!/bin/ash
+#
+# Copyright (c) 2011 Citrix Systems, Inc.
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+run_subgraph()
+{
+    local SUBGRAPH_NAME="$1"
+
+    if [ ! -d "${INSTALL_ROOT_PART2}" ] ; then
+        echo "ERROR: Directory '${INSTALL_ROOT_PART2}' does not exist" >&2
+        return 1
+    fi
+
+    if [ ! -x "${INSTALL_ROOT_PART2}/${SUBGRAPH_SCRIPT}" ] ; then
+        echo "ERROR: Cannot execute script" \
+             "'${INSTALL_ROOT_PART2}/${SUBGRAPH_SCRIPT}'" >&2
+        return 1
+    fi
+
+    # Revisit this if two different scripts can ever call the same subgraph:
+    local DATA_DIR="${INSTALL_DATA}/subgraph/${SUBGRAPH_NAME}"
+    local CONFIG_FILE="${DATA_DIR}/subgraph.conf"
+    local PATH_FILE="${DATA_DIR}/subgraph.path"
+
+    mkdir -p "${DATA_DIR}" || return 1
+
+    echo "INSTALL_ROOT='${INSTALL_ROOT_PART2}'" > "${CONFIG_FILE}"
+    echo "MOUNT_ROOT='${MOUNT_ROOT_PART2}'" >> "${CONFIG_FILE}"
+    echo "ANSWERFILE='${ANSWERFILE}'" >> "${CONFIG_FILE}"
+    echo "INTERACTIVE='${INTERACTIVE}'" >> "${CONFIG_FILE}"
+    cat >> "${CONFIG_FILE}"
+
+    echo "Running subgraph '${SUBGRAPH_NAME}' from directory" \
+         "'${INSTALL_ROOT_PART2}'" >&2
+
+    local NAVIGATION_ARG=
+    not_previous || NAVIGATION_ARG="-r"
+
+    (
+        cd "${INSTALL_ROOT_PART2}" &&
+            do_cmd ./"${SUBGRAPH_SCRIPT}" -c "${CONFIG_FILE}" \
+                                          -p "${PATH_FILE}" \
+                                          ${NAVIGATION_ARG} \
+                                          "${SUBGRAPH_NAME}"
+    )
+    local RET=$?
+
+    local STATUS
+    for STATUS in Continue Previous Abort UnexpectedAbort ; do
+        if [ ${RET} -eq $(eval "echo $""${STATUS}") ] ; then
+            echo "Subgraph '${SUBGRAPH_NAME}' returned: ${STATUS}" >&2
+            return ${RET}
+        fi
+    done
+
+    echo "ERROR: Subgraph '${SUBGRAPH_NAME}' returned unexpected status" \
+         "${RET}" >&2
+    return ${UnexpectedAbort}
+}
