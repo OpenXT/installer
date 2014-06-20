@@ -376,12 +376,16 @@ commit_dom0()
 mount_dom0()
 {
     local ROOT="$1"
+    local tmpfsopts="size=16M"
 
     do_mount -o ro ${ROOT} ${DOM0_MOUNT}                   || return 1
     do_mount -o bind /proc ${DOM0_MOUNT}/proc              || return 1
     do_mount -o bind /sys ${DOM0_MOUNT}/sys                || return 1
     do_mount -o bind /dev ${DOM0_MOUNT}/dev                || return 1
-    do_mount -t tmpfs -o size=16M tmpfs ${DOM0_MOUNT}/tmp  || return 1
+    if [ -x "$(which getenforce)" ] && getenforce | grep -qv '^Disabled$'; then
+        tmpfsopts="$tmpfsopts,rootcontext=system_u:object_r:tmp_t:s0"
+    fi
+    do_mount -t tmpfs -o $tmpfsopts tmpfs ${DOM0_MOUNT}/tmp  || return 1
     mount -t selinuxfs | grep -q -s 'selinuxfs' >&2
     [ $? -eq 0 ] && ( do_mount -o bind /selinux ${DOM0_MOUNT}/selinux || return 1 )
     # FIXME - revisit this for XC-5161:
