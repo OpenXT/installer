@@ -270,10 +270,10 @@ install_dom0()
         mixedgauge "Keying material generated successfully..." ${PERCENT}
 
         quirk_fix "${DOM0_MOUNT}"
-        [ $? -ne 0 ] && {
+        if [ $? -ne 0 ]; then
             echo "A quirk \"fix\" script failed." >&2
             return 1
-        }
+        fi
     fi
 }
 
