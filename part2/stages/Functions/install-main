@@ -270,17 +270,11 @@ install_dom0()
         mixedgauge "Keying material generated successfully..." ${PERCENT}
 
         quirk_fix "${DOM0_MOUNT}"
-        [ $? -ne 0 ] && {
+        if [ $? -ne 0 ]; then
             echo "A quirk \"fix\" script failed." >&2
             return 1
-        }
+        fi
     fi
-
-    # initialize SELinux policy and label mount points in dom0
-    do_cmd selinux_mount_setfiles ${DOM0_MOUNT} \
-                                  /config \
-                                  /var/log \
-                                  /var/cores || return 1
 }
 
 upgrade_dom0()
@@ -321,9 +315,6 @@ upgrade_dom0()
 
     # do firstboot
     touch ${DOM0_MOUNT}/boot/system/firstboot
-
-    # SELinux hack: load policy from new dom0
-    do_cmd selinux_init ${DOM0_MOUNT} || return 1
 }
 
 lv_in_use()
@@ -380,23 +371,21 @@ commit_dom0()
             fi
         fi
     fi
-
-    # Selinux hack.
-    do_cmd selinux_mount_setfiles ${DOM0_MOUNT} \
-                                  /boot/system \
-                                  /config \
-                                  /storage || return 1
 }
 
 mount_dom0()
 {
     local ROOT="$1"
+    local tmpfsopts="size=16M"
 
     do_mount -o ro ${ROOT} ${DOM0_MOUNT}                   || return 1
     do_mount -o bind /proc ${DOM0_MOUNT}/proc              || return 1
     do_mount -o bind /sys ${DOM0_MOUNT}/sys                || return 1
     do_mount -o bind /dev ${DOM0_MOUNT}/dev                || return 1
-    do_mount -t tmpfs -o size=16M tmpfs ${DOM0_MOUNT}/tmp  || return 1
+    if [ -x "$(which getenforce)" ] && getenforce | grep -qv '^Disabled$'; then
+        tmpfsopts="$tmpfsopts,rootcontext=system_u:object_r:tmp_t:s0"
+    fi
+    do_mount -t tmpfs -o $tmpfsopts tmpfs ${DOM0_MOUNT}/tmp  || return 1
     mount -t selinuxfs | grep -q -s 'selinuxfs' >&2
     [ $? -eq 0 ] && ( do_mount -o bind /selinux ${DOM0_MOUNT}/selinux || return 1 )
     # FIXME - revisit this for XC-5161:
@@ -456,7 +445,6 @@ install_uivm()
     local UIVM_DIR=`dirname ${UIVM_VHD}.new`
 
     do_cmd mkdir -p ${UIVM_DIR} >&2 || return 1
-    do_cmd selinux_mount_setfiles ${DOM0_MOUNT} /storage || return 1
 
     # UIVM swap space.
     create_swap_vhd "${UIVM_SWAP_VHD}.new" "${UIVM_SWAP_SIZE_IN_MB}" || return 1
@@ -527,7 +515,6 @@ install_ndvm()
     local NDVM_DIR=`dirname ${NDVM_VHD}.new`
 
     do_cmd mkdir -p ${NDVM_DIR} >&2 || return 1
-    do_cmd selinux_mount_setfiles ${DOM0_MOUNT} /storage || return 1
 
     # NDVM swap space.
     create_swap_vhd "${NDVM_SWAP_VHD}.new" "${NDVM_SWAP_SIZE_IN_MB}" || return 1
@@ -562,7 +549,6 @@ install_syncvm()
     local SYNCVM_DIR=`dirname ${SYNCVM_VHD}.new`
 
     do_cmd mkdir -p ${SYNCVM_DIR} >&2 || return 1
-    do_cmd selinux_mount_setfiles ${DOM0_MOUNT} /storage || return 1
 
     # SYNCVM vhd
     create_rootfs_vhd "${SYNCVM_IMG}" "${SYNCVM_IMG_TYPE}" "${SYNCVM_VHD}.new" \
@@ -824,53 +810,6 @@ mount_existing_log()
         do_mount --bind "${CURRENT_MNT}" "${MNT}" || return 1
     fi
 
-    return 0
-}
-
-# Initial linking of policy modules is now done in the build.
-# We must 'load_policy' however for upgrade where new types / modules are
-#   introduced.
-selinux_init()
-{
-    local MNT="$1"
-    if [ ! -d ${MNT} ]; then
-        echo "ERROR: Directory doesn't exist: ${MNT}" >&2
-        return 1
-    fi
-    if [ ! -f ${MNT}/selinux/enforce ]; then
-        echo "WARNING: Either selinuxfs bind mount is missing or SELinux not enabled, can't load policy" >&2
-        return 0
-    fi
-    do_cmd chroot ${MNT} sh -c "
-        /usr/sbin/load_policy" || return 1
-    return 0
-}
-
-selinux_mount_setfiles()
-{
-    local MNT="$1"
-    if [ ! -d ${MNT} ]; then
-        echo "ERROR: Directory doesn't exist: ${MNT}" >&2
-        return 1
-    fi
-    shift
-    local POL_CONF=${MNT}/etc/selinux/config
-    if [ ! -f ${POL_CONF} ]; then
-        echo "ERROR: No selinux config file at mount ${MNT}" >&2
-        return 1
-    fi
-
-    local POL_TYPE=$(cat ${POL_CONF} | grep 'SELINUXTYPE' \
-        | sed -e 's&SELINUXTYPE=\(.*\)&\1&')
-    if [ -z ${POL_TYPE} ]; then
-        echo "ERROR: Unable to determine SELinux policy type!" >&2
-        return 1
-    fi
-    for DIR in $@; do
-        do_cmd chroot ${MNT} sh -c "
-            /sbin/setfiles /etc/selinux/${POL_TYPE}/contexts/files/file_contexts ${DIR}" \
-                || return 1
-    done
     return 0
 }
 
