@@ -201,8 +201,17 @@ do_mount()
     validate_mount_point "${MNT}" || return 1
 
     do_cmd mkdir -p "${MNT}"
-    do_cmd mount "$@" || return 1
-    return 0
+
+    # Retry for a minute, sleeping 3 seconds between tries to
+    # allow slow devices such as USB CD/DVD to come online
+    for TRY in {1..20}; do
+      ## Try the mount, return 0 if succeeded
+      do_cmd mount "$@" && return 0
+      sleep 3
+    done
+
+    # Return failure, unable to mount across all retries
+    return 1 
 }
 
 # Unmounts a filesystem. Pass the mount point, not the device.
