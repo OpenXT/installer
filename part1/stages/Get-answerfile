@@ -43,35 +43,17 @@ nic_has_carrier()
 {
     local DEV="$1"
 
+    echo "dev=${DEV} carrier=$(cat /sys/class/net/${DEV}/carrier)" >&2
     [ "x$(cat /sys/class/net/${DEV}/carrier)" = "x1" ]
-}
-
-wait_for_carrier()
-{
-    local DEV="$1"
-    local TIMEOUT="$2"
-
-    # Give the network time to come up. Put this indication on screen even
-    # in non-interactive case:
-    dialog --infobox "\n\n     Detecting hardware..." 7 35
-
-    COUNT=0
-    while [ "${COUNT}" -lt "${TIMEOUT}" ] ; do
-        nic_has_carrier "${DEV}" && return
-        sleep 1
-        COUNT=$((COUNT + 1))
-    done
 }
 
 network_up_for_answerfile()
 {
     # 1. Is the network already up?
-    NIC_LIST="$(find_physical_nics)"
-    NIC_COUNT="$?"
-
-    for DEV in ${NIC_LIST} ; do
-        if ifconfig ${DEV} | egrep -q '^\s*UP ' ; then
+    for DEV in $(find_physical_nics); do
+        if ifconfig ${DEV} | egrep -q '^\s*UP '; then
             if ifconfig ${DEV} | egrep -q '^\s*inet addr:(12[^7]|1[^2]|[^1])' ; then
+                echo "networking already configured for dev=${DEV}" >&2
                 return 0
             fi
         fi
@@ -83,38 +65,44 @@ network_up_for_answerfile()
 
     ANSWERFILE_NW=$(read_kcmdline_opt "answerfile_nw")
     unset NIC
+    
+    # Give the network time to come up. Put this indication on screen even
+    # in non-interactive case:
+    dialog --infobox "\n\n     Detecting hardware..." 7 35
 
-    if [ -z "${ANSWERFILE_NW}" ] ; then
-        case ${NIC_COUNT} in
-            0)
-                echo "No network interfaces found: aborting.">&2
-                return 1
-                ;;
-            *)
-                # Take the first NIC with carrier.
-                for DEV in ${NIC_LIST} ; do
-                    ifconfig "${DEV}" up
-                done
-
-                wait_for_carrier $(echo ${NIC_LIST} | cut -f1 -d' ') 10
-
-                for DEV in ${NIC_LIST} ; do
-                    if nic_has_carrier "${DEV}" ; then
-                        NIC="${DEV}"
-                        break
-                    fi
-                done
-
-                for DEV in ${NIC_LIST} ; do
-                    ifconfig "${DEV}" down
-                done
-
-                if [ -z "${NIC}" ] ; then
-                    echo "No network interface with carrier: aborting.">&2
-                    return 1
+    if [ -z "${ANSWERFILE_NW}" ] ; then     
+        # Take the first NIC with carrier.
+        retries=0
+        while [ ${retries} -lt 30 ]; do
+            for DEV in $(find_physical_nics); do
+                ifconfig "${DEV}" up
+                sleep 1
+                if nic_has_carrier "${DEV}" ; then
+                    NIC="${DEV}"
+                    break
                 fi
-                ;;
-        esac
+            done
+
+            # Break if NIC has been selected
+            if [ -n "${NIC}" ]; then
+                break
+            fi
+
+            # give it a rest before retrying
+            echo "no network interface ready yet, retrying..." >&2
+            sleep 5
+            retries=$((retries + 1))
+        done
+
+        if [ -z "$(find_physical_nics)" ]; then
+            echo "No network interfaces found: aborting." >&2
+            return 1
+        fi
+        
+        if [ -z "${NIC}" ] ; then
+            echo "No network interface with carrier: aborting." >&2
+            return 1
+        fi
     else
         # TODO: change defn of this cmd line opt, to support dhcp/static config
         NIC="${ANSWERFILE_NW}"
