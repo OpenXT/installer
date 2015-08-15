@@ -163,6 +163,10 @@ install_dom0()
 
     mixedgauge "Creating disk volumes..." ${PERCENT}
     PERCENT=$((PERCENT + 10))
+    #calc size in bytes for dom0 rootfs, convert to MB and set DOM0_ROOT_LV_SIZE
+    DOM0_SIZE_BYTES=$(zcat ${DOM0_ROOTFS} | wc -c)
+    DOM0_ROOT_LV_SIZE=$(((${DOM0_SIZE_BYTES} / 1048576) + 1))M
+    
     mk_xc_lvm /dev/${XC_PARTITION} >&2 || return 1
 
     mixedgauge "Writing filesystem..." ${PERCENT}
