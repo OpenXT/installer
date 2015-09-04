@@ -2,9 +2,4 @@
 <license-key></license-key>
 <quick-option>
 <skip-extra-supplemental-packs></skip-extra-supplemental-packs>
-<skipinsertcd></skipinsertcd>
-<partition-mode></partition-mode>
-<enable-ssh>false</enable-ssh>
-<measure-launch>false</measure-launch>
-<skipready></skipready>
 </quick-option>
