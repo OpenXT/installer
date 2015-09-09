@@ -42,28 +42,15 @@ fi
 
 QUICK="quick-option"
 
-if answerfile_specifies "${QUICK}" "${FULL_ANSWERFILE}" ; then
-    dialog --backtitle "${TITLE}" --yes-label "Quick install" --no-label "Advanced install" --yesno "\n   Welcome to the ${PRODUCT_BRAND} installer" 7 46
-    OPT="$?"
+do_cmd dialog --backtitle "${TITLE}" --ok-label Continue --msgbox "\nWelcome to the ${PRODUCT_BRAND} installer." 7 42
+OPT="$?"
+[ "${OPT}" -ne 0 ] && exit ${Abort}
 
-    if [ "${OPT}" = 1 ] ; then
-        echo "Installing using Advanced option.">&2
-        # delete everything between <quick-option> and </quick-option>
-        sed -e '/<'"${QUICK}"'>/,/\/'"${QUICK}"'>/d' <"${FULL_ANSWERFILE}" >"${ANSWERFILE}"
-        exit ${Continue}
-    fi
-    if [ "${OPT}" = 0 ] ; then
-        echo "Installing using Quick option.">&2
-        cp "${FULL_ANSWERFILE}" "${ANSWERFILE}"
-        # remove <quick-option> and </quick-option> tags, and empty lines
-        sed -e 's/<'"${QUICK}"'>//g' -e 's/<\/'"${QUICK}"'>//g' -e '/^$/d' <"${FULL_ANSWERFILE}" >"${ANSWERFILE}"
-        exit ${Continue}
-    fi
+if answerfile_specifies "${QUICK}" "${FULL_ANSWERFILE}" ; then
+    # remove <quick-option> and </quick-option> tags, and empty lines
+    sed -e 's/<'"${QUICK}"'>//g' -e 's/<\/'"${QUICK}"'>//g' -e '/^$/d' <"${FULL_ANSWERFILE}" >"${ANSWERFILE}"
 else
     cp "${FULL_ANSWERFILE}" "${ANSWERFILE}"
-    do_cmd dialog --backtitle "${TITLE}" --ok-label Continue --msgbox "\nWelcome to the ${PRODUCT_BRAND} installer." 7 42
-    OPT="$?"
-    [ "${OPT}" != 0 ] || exit ${Continue}
 fi
 
-exit ${Abort}
+exit ${Continue}
