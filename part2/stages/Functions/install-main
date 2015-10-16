@@ -306,6 +306,10 @@ upgrade_dom0()
 
     mixedgauge "Upgrading filesystem..." ${PERCENT}
     PERCENT=$((PERCENT + 30))
+
+    DOM0_SIZE_BYTES=$(zcat ${DOM0_ROOTFS} | wc -c)
+    DOM0_ROOT_LV_SIZE=$(((${DOM0_SIZE_BYTES} / 1048576) + 1))M
+
     do_cmd lvcreate --name `basename ${ROOT_DEV}.new` \
         --size ${DOM0_ROOT_LV_SIZE} `dirname ${ROOT_DEV}.new` >&2 || return 1
     write_rootfs ${DOM0_ROOTFS} ${ROOTFS_TYPE} ${ROOT_DEV}.new >&2 || {
