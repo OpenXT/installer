@@ -55,9 +55,7 @@ is_upgradeable_release()
     RELEASE="$1"
     for CHECK in ${UPGRADEABLE_RELEASES} ; do
 
-        [ "${CHECK}" != "*" ] || return 0
-
-        if [ "${RELEASE}" = "${CHECK}" ] ; then
+        if [ -z "${RELEASE%%${CHECK}}" ] ; then
             echo "Upgrade allowed from detected release: ${RELEASE}" >&2
             return 0
         fi
