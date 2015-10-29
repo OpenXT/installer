@@ -180,13 +180,12 @@ install_dom0()
     # Dealing with encrypted partitions
     # config
     # Generate random config key.
-    openssl rand -out ${CONFIG_KEY} 128 2>/dev/null
+    openssl rand -out ${CONFIG_KEY} 512 2>/dev/null
     # Initialize config's luks header with previous key.
-    cryptsetup -q -S 7 -i 1 luksFormat /dev/xenclient/config ${CONFIG_KEY} >&2 || return 1
+    cryptsetup -q -S 7 -i 1 --cipher=aes-xts-plain64 luksFormat /dev/xenclient/config ${CONFIG_KEY} >&2 || return 1
     # Adds get-config-key result to keys in config's luks header.
     local GCK=`mktemp -t`
     get-config-key > ${GCK}
-    # FIXME: iteration time will have to be different between kent and non-kent
     cryptsetup -q -i 100 -d ${CONFIG_KEY} luksAddKey /dev/xenclient/config ${GCK} || {
         rm -f ${GCK}
         set +x
