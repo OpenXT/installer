@@ -30,7 +30,7 @@ check_gfx()
             if grep -q '3....$' $i/class; then
                 vendor=$(cat $i/vendor)
                 case $vendor in
-                    "0x8086"|"0x1002") return 0;;
+                    "0x8086"|"0x1002"|"0x10de") return 0;;
                 esac
             fi
         fi
