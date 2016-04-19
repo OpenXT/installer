@@ -44,11 +44,7 @@ REPOSITORY_CONF="${INSTALL_DATA}/repository.conf"
 DISK_CONF="${INSTALL_DATA}/disk.conf"
 SSH_CONF="${INSTALL_DATA}/ssh.conf"
 MEASURED_LAUNCH_CONF="${INSTALL_DATA}/measured-launch.conf"
-TPM_OWNER_PASSWD_SSL="${INSTALL_DATA}/tpm-owner-passwd.ssl"
 INSTALL_MODE_CONF="${INSTALL_DATA}/install-mode.conf"
-RECOVERY_PUBLIC_KEY_CONF="${INSTALL_DATA}/recovery-public-key.conf"
-RECOVERY_PRIVATE_KEY_CONF="${INSTALL_DATA}/recovery-private-key.conf"
-RECOVERY_DISK_KEY_SSL="${INSTALL_DATA}/recovery-disk-key.ssl"
 PARTITION_CONF="${INSTALL_DATA}/partition.conf"
 VHD_CONF="${INSTALL_DATA}/vhd.conf"
 VM_CONF="${INSTALL_DATA}/vm.conf"
@@ -113,13 +109,9 @@ OLD_PRESERVED_DOM0_CONFIG_DIR="install/data"
 # set will be excluded from the archive of the install data so that only one
 # copy of them exists on the target filesystem.
 DOM0_CONFIGS="${SSH_CONF}"
-DOM0_SENSITIVE_CONFIGS="${RECOVERY_PUBLIC_KEY_CONF} ${RECOVERY_PRIVATE_KEY_CONF} ${RECOVERY_DISK_KEY_SSL} ${UIVM_GCONF_VHD_KEY} ${TPM_OWNER_PASSWD_SSL}"
+DOM0_SENSITIVE_CONFIGS="${UIVM_GCONF_VHD_KEY}"
 
 #-----------------------------------------------------------
 # Temporary files lasting installation time
 PASSWORD_HASH="/tmp/password"
 PASSWORD_DEFERRED="/tmp/defer_password"
-CONFIG_KEY="/tmp/config-lv.key"
-LOG_KEY="/tmp/log-lv.key"
-CORES_KEY="/tmp/cores-lv.key"
-DEVICE_KEY="/tmp/device.key"
