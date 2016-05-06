@@ -88,12 +88,12 @@ EOF
         realign_xc_partition
     fi
 
-    do_cmd sfdisk -f -N"${PARTITION_NUM}" "${DISK_DEV}" <<EOF >&2
+    do_cmd sfdisk -f "${DISK_DEV}" -N "${PARTITION_NUM}" <<EOF >&2
 ,,${XC_PARTITION_TYPE}
 EOF
 
     mixedgauge "Activating ${PRODUCT_BRAND} disk partition..." 15
-    do_cmd sfdisk -f "${DISK_DEV}" -A"${PARTITION_NUM}" >&2
+    do_cmd sfdisk -f -A "${DISK_DEV}" "${PARTITION_NUM}" >&2
 
     echo "New partition layout:" >&2
     fdisk -lu "${DISK_DEV}" >&2
