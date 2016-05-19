@@ -166,8 +166,9 @@ install_dom0()
     #calc size in bytes for dom0 rootfs, convert to MB and set DOM0_ROOT_LV_SIZE
     DOM0_SIZE_BYTES=$(zcat ${DOM0_ROOTFS} | wc -c)
     DOM0_ROOT_LV_SIZE=$(((${DOM0_SIZE_BYTES} / 1048576) + 1))M
-    
-    mk_xc_lvm /dev/${XC_PARTITION} >&2 || return 1
+
+    local NODE=$(get_partition_node "${XC_PARTITION}")
+    mk_xc_lvm /dev/${NODE} >&2 || return 1
 
     mixedgauge "Writing filesystem..." ${PERCENT}
     PERCENT=$((PERCENT + 10))

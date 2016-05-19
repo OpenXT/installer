@@ -39,7 +39,7 @@ if answerfile_specifies "primary-disk" ; then
 else
 
     # Step 1: get the list of available hard disks
-    DISKS=$(ls /sys/block | egrep -v '(^dm-|^loop|^ram|^sr|^scd|^tapdev|[0-9]$)')
+    DISKS=$(ls /sys/block | egrep -v '(^dm-|^loop|^ram|^sr|^scd|^tapdev)')
 
     # Step 2: filter the list of disks to those of sufficient size
     FILTERED_DISKS=""
