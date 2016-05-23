@@ -33,7 +33,7 @@ scan_partitions()
 
     local N
     for N in 1 2 3 4 ; do
-        PRIMARY_PARTITIONS="${PRIMARY_PARTITIONS} ${TARGET_DISK}${N}"
+        PRIMARY_PARTITIONS="${PRIMARY_PARTITIONS} ${TARGET_DISK}/${N}"
     done
 
     EXISTING_PARTITIONS=
@@ -121,10 +121,11 @@ is_oem_partition()
 get_partition_type()
 {
     local PARTITION="$1"
-    local DISK=$(echo "${PARTITION}" | sed 's/[0-9]*$//')
+    local DISK=$(get_partition_disk "${PARTITION}")
+    local NODE=$(get_partition_node "${PARTITION}")
 
     fdisk -ul "/dev/${DISK}" |
-        grep "^/dev/${PARTITION} " |
+        grep "^/dev/${NODE} " |
         sed 's/\*//' |
         awk '{print $5}'
 }
@@ -132,15 +133,17 @@ get_partition_type()
 get_vg_name()
 {
     local PARTITION="$1"
+    local NODE=$(get_partition_node "${PARTITION}")
 
-    pvdisplay -c | grep "^ */dev/${PARTITION}:" | awk -F: '{print $2}'
+    pvdisplay -c | grep "^ */dev/${NODE}:" | awk -F: '{print $2}'
 }
 
 disk_has_free_space()
 {
     local PARTITION="$1"
-    local DISK=$(echo "${PARTITION}" | sed 's/[0-9]*$//')
-    local PARTITION_NUM=$(echo "${PARTITION}" | sed 's/^.*[a-z]//')
+    local DISK=$(get_partition_disk "${PARTITION}")
+    local PARTITION_NUM=$(get_partition_number "${PARTITION}")
+    local NODE=$(get_partition_node "${PARTITION}")
 
     # Try creating primary partition, but don't write changes to disk.
     OUTPUT=$(fdisk -u "/dev/${DISK}" <<EOF 2>&1
@@ -158,12 +161,12 @@ EOF
     echo "${OUTPUT}" | grep -q 'No free sectors available' && return 1
 
     # Will partition be large enough?
-    FIRST_SECTOR=$(echo "${OUTPUT}" |
-                   grep "^/dev/${PARTITION}" |
+    FIRST_SECTOR=$(echo "${OUTPUT}" | sed 's/\*//' |
+                   grep "^/dev/${NODE}" |
                    awk '{print $2}')
 
-    LAST_SECTOR=$(echo "${OUTPUT}" |
-                  grep "^/dev/${PARTITION}" |
+    LAST_SECTOR=$(echo "${OUTPUT}" | sed 's/\*//' |
+                  grep "^/dev/${NODE}" |
                   awk '{print $3}')
 
     if [ -z "${FIRST_SECTOR}" -o -z "${LAST_SECTOR}" ] ; then

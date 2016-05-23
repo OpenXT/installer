@@ -307,3 +307,38 @@ bc_greater_or_equal()
 {
     [ $(echo "$1 >= $2" | bc) = "1" ]
 }
+
+get_partition_disk()
+{
+    local PARTITION="$1"
+    local DISK=$(echo "${PARTITION}" | cut -d '/' -f 1)
+
+    echo "${DISK}"
+
+    return 0
+}
+
+get_partition_number()
+{
+    local PARTITION="$1"
+    local PARTITION_NUM=$(echo "${PARTITION}" | cut -d '/' -f 2)
+
+    echo "${PARTITION_NUM}"
+
+    return 0
+}
+
+get_partition_node()
+{
+    local PARTITION="$1"
+    local DISK=$(get_partition_disk "${PARTITION}")
+    local PARTITION_NUM=$(get_partition_number "${PARTITION}")
+
+    if [ $(echo "${DISK}" | grep "nvme") ]; then
+        echo "${DISK}p${PARTITION_NUM}"
+    else
+        echo "${DISK}${PARTITION_NUM}"
+    fi
+
+    return 0
+}
