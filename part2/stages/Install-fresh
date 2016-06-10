@@ -26,7 +26,9 @@
 . ${SCRIPT_DIR}/Functions/install-main
 
 TPM_FUNC=/usr/lib/tpm-scripts/tpm-functions
+MLE_FUNC=/usr/lib/openxt/ml-functions
 [ ! -r ${TPM_FUNC} ] || . ${TPM_FUNC}
+[ ! -r ${MLE_FUNC} ] || . ${MLE_FUNC}
 [ ! -r ${MEASURED_LAUNCH_CONF} ] || . ${MEASURED_LAUNCH_CONF}
 
 if [ -z "${PACKAGES_DIR}" ] ; then
