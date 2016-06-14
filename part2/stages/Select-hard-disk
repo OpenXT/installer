@@ -39,7 +39,7 @@ if answerfile_specifies "primary-disk" ; then
 else
 
     # Step 1: get the list of available hard disks
-    DISKS=$(ls /sys/block | egrep -v '(^dm-|^loop|^ram|^sr|^scd|^tapdev)')
+    DISKS=$(ls /sys/block | egrep -v '(^dm-|^loop|^ram|^sr|^scd|^tapdev|^td)')
 
     # Step 2: filter the list of disks to those of sufficient size
     FILTERED_DISKS=""
@@ -81,37 +81,39 @@ controller is set up to use AHCI mode.
         not_previous || exit ${Previous}
 
         DISK="${FILTERED_DISKS}"
-        break
         ;;
     *)
         if ! interactive ; then
-            echo "Multiple suitable hard disks found and answerfile omits <primary-disk>">&2
-            exit ${Abort}
-        fi
+            # When multiple disks are found in non-interactive mode, use the first one.
+            # The following parameter expansion (%% *) behaves like sed 's/ .*$//' or awk '{print $1}'
+            DISK="${FILTERED_DISKS%% *}"
+            echo "Warning: Multiple suitable hard disks found and answerfile omits <primary-disk>">&2
+            echo "         Using the first in alphabetical order: ${DISK}">&2
+        else
+            ARG=""
+            for DEV in ${FILTERED_DISKS} ; do
+                MODEL=$(cat /sys/block/${DEV}/device/model)
+                RAW_SIZE=$(cat /sys/block/${DEV}/size)
+                SIZE=$(pretty_size ${RAW_SIZE})
+                ARG="${ARG}${ARG:+ }${DEV} \"${SIZE} ${MODEL}\""
+            done
+            CAPTURE=$(mktemp -t)
+            echo ${ARG} | xargs dialog --ok-label Select --cancel-label Previous --menu "Select hard disk for installation" 0 0 0 2>${CAPTURE}
+            OPT="$?"
 
-        ARG=""
-        for DEV in ${FILTERED_DISKS} ; do
-            MODEL=$(cat /sys/block/${DEV}/device/model)
-            RAW_SIZE=$(cat /sys/block/${DEV}/size)
-            SIZE=$(pretty_size ${RAW_SIZE})
-            ARG="${ARG}${ARG:+ }${DEV} \"${SIZE} ${MODEL}\""
-        done
-        CAPTURE=$(mktemp -t)
-        echo ${ARG} | xargs dialog --ok-label Select --cancel-label Previous --menu "Select hard disk for installation" 0 0 0 2>${CAPTURE}
-        OPT="$?"
+            if [ "${OPT}" != 0 ] ; then
+                rm -f ${CAPTURE}
+                [ ${OPT} != 1 ]   || exit ${Previous}
+                [ ${OPT} != 123 ] || exit ${Previous}
+                [ ${OPT} != 124 ] || exit ${Previous}
+                [ ${OPT} != 255 ] || exit ${Previous}
+                exit ${Abort}
+            fi
 
-        if [ "${OPT}" != 0 ] ; then
+            # Read the selection
+            DISK=$(cat ${CAPTURE} 2>/dev/null)
             rm -f ${CAPTURE}
-            [ ${OPT} != 1 ]   || exit ${Previous}
-            [ ${OPT} != 123 ] || exit ${Previous}
-            [ ${OPT} != 124 ] || exit ${Previous}
-            [ ${OPT} != 255 ] || exit ${Previous}
-            exit ${Abort}
-        fi
-
-        # Read the selection
-        DISK=$(cat ${CAPTURE} 2>/dev/null)
-        rm -f ${CAPTURE}
+	fi
         ;;
 
     esac
