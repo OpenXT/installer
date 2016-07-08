@@ -24,4 +24,15 @@ not_previous || exit ${Previous}
 # Ensure the presence of the installation data directory
 mkdir -p "${INSTALL_DATA}"
 
+# Start trousers early since it needs time to settle.
+# For now we don't really care if it fails
+TPM_FUNCS=/usr/lib/tpm-scripts/tpm-functions
+if [ ! -f ${TPM_FUNCS} ]; then
+    echo "Warning: no tpm-function library found at ${TPM_FUNCS}." >&2
+    exit ${Continue}
+else
+    . ${TPM_FUNCS}
+fi
+tcsd_start || echo "Warning: TrouSerS failed to start." >&2
+
 exit ${Continue}
