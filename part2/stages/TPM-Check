@@ -66,6 +66,9 @@ quirk_detect "quirk_callback" "quirk_fatal_callback"
 }
 
 update_gauge "${CHECK_MSG}" ${TPM_GAUGE}
+
+# The TrouSerS daemon should already be running, tcsd_start checks for that
+#   first and just succeeds if it is running.
 tcsd_start || exit ${TpmDisabled}
 
 TPM_GAUGE=$((${TPM_GAUGE}+${TPM_GAUGE_STEP}))
