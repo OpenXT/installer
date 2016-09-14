@@ -3,3 +3,4 @@
 <quick-option>
 <skip-extra-supplemental-packs></skip-extra-supplemental-packs>
 </quick-option>
+<allow-dev-repo-cert>true</allow-dev-repo-cert>
