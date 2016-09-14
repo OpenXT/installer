@@ -8,3 +8,4 @@
 <enable-ssh>false</enable-ssh>
 <skipready></skipready>
 </quick-option>
+<allow-dev-repo-cert>true</allow-dev-repo-cert>
