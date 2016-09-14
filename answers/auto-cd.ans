@@ -5,3 +5,4 @@
 <password type="none"></password>
 <license-key></license-key>
 <skipready></skipready>
+<allow-dev-repo-cert>true</allow-dev-repo-cert>
