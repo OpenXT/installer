@@ -8,3 +8,4 @@
 <measure-launch>false</measure-launch>
 <skipready></skipready>
 </quick-option>
+<allow-dev-repo-cert>true</allow-dev-repo-cert>
