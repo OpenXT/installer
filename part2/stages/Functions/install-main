@@ -161,8 +161,12 @@ install_dom0()
     local DOM0_ROOTFS="$1"
     local ROOTFS_TYPE="$2"
 
+    local config_lv=/dev/xenclient/config
+
     mixedgauge "Creating disk volumes..." ${PERCENT}
-    PERCENT=$((PERCENT + 10))
+    # Genereally PERCENT=10 and next phase will jump to 50, going in 5% increments
+    # gives 6 status updates without causing MS style progress bars
+    PERCENT=$((PERCENT + 5))
     #calc size in bytes for dom0 rootfs, convert to MB and set DOM0_ROOT_LV_SIZE
     DOM0_SIZE_BYTES=$(zcat ${DOM0_ROOTFS} | wc -c)
     DOM0_ROOT_LV_SIZE=$(((${DOM0_SIZE_BYTES} / 1048576) + 1))M
@@ -171,71 +175,49 @@ install_dom0()
     mk_xc_lvm /dev/${NODE} >&2 || return 1
 
     mixedgauge "Writing filesystem..." ${PERCENT}
-    PERCENT=$((PERCENT + 10))
+    PERCENT=$((PERCENT + 5))
+
+    # Setup rootfs first
     write_rootfs ${DOM0_ROOTFS} ${ROOTFS_TYPE} ${ROOT_DEV}.new >&2 || return 1
+    do_cmd mke2fs -j /dev/xenclient/boot                       >&2 || return 1
+    do_cmd mkfs.ext4 -N 65536 -q /dev/xenclient/storage        >&2 || return 1
+    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/xenclient/boot         >&2 || return 1
+    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/xenclient/storage      >&2 || return 1
+    mount_dom0 "${ROOT_DEV}.new" || return 1
+
+    mixedgauge "Obtaining recovery key..." ${PERCENT}
+    PERCENT=$((PERCENT + 5))
+    # Let installer see message before pass prompt
+    sleep 1
+    local RECOVERY_KEY=$(gen_recovery_key ${DOM0_MOUNT})
 
     mixedgauge "Formatting storage..." ${PERCENT}
-    PERCENT=$((PERCENT + 10))
+    PERCENT=$((PERCENT + 5))
+
     # do_cmd doesn't do pipes -- what's wrong with set -x ?
+    # TODO: need to see if these set -x/set +x switching can be eliminated
     set -x
-    # Dealing with encrypted partitions
+
+    #
     # config
-    # Generate random config key.
-    openssl rand -out ${CONFIG_KEY} 512 2>/dev/null
-    # Initialize config's luks header with previous key.
-    cryptsetup -q -S 7 -i 1 --cipher=aes-xts-plain64 luksFormat /dev/xenclient/config ${CONFIG_KEY} >&2 || return 1
-    # Adds get-config-key result to keys in config's luks header.
-    local GCK=`mktemp -t`
-    get-config-key > ${GCK}
-    cryptsetup -q -i 100 -d ${CONFIG_KEY} luksAddKey /dev/xenclient/config ${GCK} || {
-        rm -f ${GCK}
+    #
+    cryptsetup -q -i 1 --cipher=aes-xts-plain64 luksFormat ${config_lv} ${RECOVERY_KEY} >&2 || {
+        rm -f ${RECOVERY_KEY}
         set +x
         return 1
     }
-    rm -f ${GCK}
-    # Create an encrypted config's random key if possible.
-    [ -r ${RECOVERY_PUBLIC_KEY_CONF} ] && {
-	openssl rsautl -encrypt -inkey ${RECOVERY_PUBLIC_KEY_CONF} -pubin \
-	    -in ${CONFIG_KEY} -out ${RECOVERY_DISK_KEY_SSL}
-    }
+    local PLATFORM_KEY=$(gen_platform_key ${DOM0_MOUNT})
+    set_platform_key ${RECOVERY_KEY} ${PLATFORM_KEY} ${config_lv}
     # Open config lv.
-    cryptsetup -q -d ${CONFIG_KEY} luksOpen /dev/xenclient/config config >&2 || {
+    cryptsetup -q -d ${RECOVERY_KEY} luksOpen /dev/xenclient/config config >&2 || {
         set +x
         return 1
     }
-    rm -f ${CONFIG_KEY}
-    # log
-    do_cmd mkdir -p -m 500 /tmp/keys
-    openssl rand -out ${LOG_KEY} 128 2> /dev/null &&
-    cryptsetup -q -d ${LOG_KEY} create log /dev/xenclient/log >&2 || {
-        set +x
-        return 1
-    }
-    # cores
-    openssl rand -out ${CORES_KEY} 128 2> /dev/null &&
-    cryptsetup -q -d ${CORES_KEY} create cores /dev/xenclient/cores >&2 || {
-        set +x
-        return 1
-    }
+
+    # Formatting and mounting config first so we can lay down the keys directly
     set +x
-    # device key (used to tie encrypted disks to this host)
-    openssl rand -out ${DEVICE_KEY} 128 2> /dev/null
-
-    do_cmd mke2fs -j /dev/xenclient/boot                    >&2 || return 1
     do_cmd mkfs.ext3 -q /dev/mapper/config                  >&2 || return 1
-    do_cmd mkfs.ext4 -N 65536 -q /dev/xenclient/storage     >&2 || return 1
-    do_cmd mkfs.ext3 -q /dev/mapper/log                     >&2 || return 1
-    do_cmd mkfs.ext3 -q /dev/mapper/cores                   >&2 || return 1
-
-    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/xenclient/boot      >&2 || return 1
     do_cmd tune2fs -i 0 -c -1 -m 0 /dev/mapper/config       >&2 || return 1
-    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/xenclient/storage   >&2 || return 1
-    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/mapper/log          >&2 || return 1
-    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/mapper/cores        >&2 || return 1
-
-    mount_dom0 "${ROOT_DEV}.new" || return 1
-    do_mount /dev/mapper/log    ${DOM0_MOUNT}/var/log       >&2 || return 1
-    do_mount /dev/mapper/cores  ${DOM0_MOUNT}/var/cores     >&2 || return 1
 
     # mount config and copy dom0 /config
     do_mount /dev/mapper/config ${TEMP_CONFIG_MOUNT}        >&2 || return 1
@@ -244,12 +226,42 @@ install_dom0()
     do_mount --move ${TEMP_CONFIG_MOUNT} \
         ${DOM0_MOUNT}/config                                >&2 || return 1
 
-    # Write keys in /config
+    # setup so keys can be written directly
     do_cmd mkdir -p -m 500 ${DOM0_MOUNT}/config/keys        >&2 || return 1
-    do_cmd cp -f ${LOG_KEY} ${DOM0_MOUNT}/config/keys       >&2 || return 1
-    do_cmd cp -f ${CORES_KEY} ${DOM0_MOUNT}/config/keys     >&2 || return 1
     do_cmd mkdir -p -m 500 ${DOM0_MOUNT}/config/sec         >&2 || return 1
-    do_cmd cp -f ${DEVICE_KEY} ${DOM0_MOUNT}/config/sec     >&2 || return 1
+
+    #
+    # log
+    #
+    set -x
+    local LOG_KEY=$(gen_log_key ${DOM0_MOUNT})
+    cryptsetup -q -d ${LOG_KEY} create log /dev/xenclient/log >&2 || {
+        set +x
+        return 1
+    }
+
+    #
+    # cores
+    #
+    local CORES_KEY=$(gen_cores_key ${DOM0_MOUNT})
+    cryptsetup -q -d ${CORES_KEY} create cores /dev/xenclient/cores >&2 || {
+        set +x
+        return 1
+    }
+
+    # device key (used to tie encrypted disks to this host)
+    local DEVICE_KEY=$(gen_device_key ${DOM0_MOUNT})
+
+    set +x
+
+    do_cmd mkfs.ext3 -q /dev/mapper/log                     >&2 || return 1
+    do_cmd mkfs.ext3 -q /dev/mapper/cores                   >&2 || return 1
+
+    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/mapper/log          >&2 || return 1
+    do_cmd tune2fs -i 0 -c -1 -m 0 /dev/mapper/cores        >&2 || return 1
+
+    do_mount /dev/mapper/log    ${DOM0_MOUNT}/var/log       >&2 || return 1
+    do_mount /dev/mapper/cores  ${DOM0_MOUNT}/var/cores     >&2 || return 1
 
     # Reserve 4GB on storage
     do_cmd falloc ${DOM0_MOUNT}/storage/xc-reserved 4096    >&2 || return 1
@@ -263,14 +275,15 @@ install_dom0()
 
     [ -r "${PASSWORD_HASH}" ] || return 1
     sed -i "s|^root:[^:]*|root:$(cat ${PASSWORD_HASH})|" \
-	${DOM0_MOUNT}/config/etc/shadow || return 1
+        ${DOM0_MOUNT}/config/etc/shadow || return 1
 
     # do firstboot
     touch ${DOM0_MOUNT}/boot/system/firstboot
 
     if [ "${MEASURE_LAUNCH}" = "true" ]; then
         mixedgauge "Configuring Measured Launch... Press random keys to speed up the sealing process." ${PERCENT}
-        configure_measured_launch "${DOM0_MOUNT}" || return 1
+        PERCENT=$((PERCENT + 5))
+        CONFIG_KEY=$(configure_measured_launch "${DOM0_MOUNT}" "${RECOVERY_KEY}" "${config_lv}") || return 1
         mixedgauge "Keying material generated successfully..." ${PERCENT}
 
         quirk_fix "${DOM0_MOUNT}"
@@ -279,6 +292,8 @@ install_dom0()
             return 1
         fi
     fi
+
+    finalize_keys "${RECOVERY_KEY}" "${PLATFORM_KEY}" "${CONFIG_KEY}" || return 1
 }
 
 upgrade_dom0()
@@ -367,16 +382,85 @@ commit_dom0()
             echo "commit_dom0: ${DOM0_MOUNT}/config is mounted" >&2
             echo "commit_dom0: touching rehash-vms" >&2
             touch ${DOM0_MOUNT}/config/rehash-vms
-            if [ "${EXISTING_MEASURED_STATE}" = "true" ]; then
-                echo "commit_dom0: /config is mounted, previously sealed: forcing reseal"
-                cryptsetup -q -d ${DOM0_MOUNT}/config/keys/config.key luksKillSlot \
-                    /dev/mapper/xenclient-config 0 >/dev/null 2>&1
-                get-config-key > /tmp/gck && cryptsetup -q -d ${DOM0_MOUNT}/config/keys/config.key \
-                    -S 0 -i 1 luksAddKey /dev/mapper/xenclient-config /tmp/gck >/dev/null 2>&1 \
-                    || exit 1
-                touch ${DOM0_MOUNT}/boot/system/tpm/setup >&2
-                touch ${DOM0_MOUNT}/boot/system/tpm/clear-config-key >&2
+
+            [ -e ${DOM0_MOUNT}/config/keys/cores.key ] || {
+                cp ${DOM0_MOUNT}/config/keys/cores-lv.key \
+                        ${DOM0_MOUNT}/config/keys/cores.key
+            }
+            [ -e ${DOM0_MOUNT}/config/keys/log.key ] || {
+                cp ${DOM0_MOUNT}/config/keys/log-lv.key \
+                        ${DOM0_MOUNT}/config/keys/log.key
+            }
+        fi
+    fi
+}
+
+seal_system() {
+    if [ "${INSTALL_MODE}" = "upgrade" ]; then
+        if [ "${EXISTING_MEASURED_STATE}" = "true" ]; then
+            do_mount -o ro ${ROOT_DEV} ${DOM0_MOUNT} ||
+                return 1
+
+            do_mount -o bind /sys ${DOM0_MOUNT}/sys || {
+                echo "failed to bind mount sysfs" >&2
+                do_umount ${DOM0_MOUNT}
+                return 1
+            }
+            do_mount -o bind /dev ${DOM0_MOUNT}/dev || {
+                echo "failed to bind mount dev" >&2
+                do_umount ${DOM0_MOUNT}/sys
+                do_umount ${DOM0_MOUNT}
+                return 1
+            }
+            do_mount -o size=32M -t tmpfs tmpfs ${DOM0_MOUNT}/tmp || {
+                echo "failed to bind mount dev" >&2
+                do_umount ${DOM0_MOUNT}/dev
+                do_umount ${DOM0_MOUNT}/sys
+                do_umount ${DOM0_MOUNT}
+                return 1
+            }
+            do_mount -o bind /boot/system ${DOM0_MOUNT}/boot/system || {
+                echo "failed to mount boot" >&2
+                do_umount ${DOM0_MOUNT}/tmp
+                do_umount ${DOM0_MOUNT}/dev
+                do_umount ${DOM0_MOUNT}/sys
+                do_umount ${DOM0_MOUNT}
+                return 1
+            }
+
+            mount_config || {
+                echo "failed to mount config" >&2
+                do_umount ${DOM0_MOUNT}/boot/system
+                do_umount ${DOM0_MOUNT}/tmp
+                do_umount ${DOM0_MOUNT}/dev
+                do_umount ${DOM0_MOUNT}/sys
+                do_umount ${DOM0_MOUNT}
+                return 1
+            }
+            is_mounted ${DOM0_MOUNT}/config
+            if [ $? -eq 1 ]; then
+                echo "seal_system: /config is mounted, forward sealing key" >&2
+
+		/etc/init.d/trousers stop
+                chroot ${DOM0_MOUNT} /usr/sbin/seal-system -f -r ${ROOT_DEV}
+		/etc/init.d/trousers start
+
+                do_umount ${DOM0_MOUNT}/config
+                do_umount ${DOM0_MOUNT}/boot/system
+                do_umount ${DOM0_MOUNT}/tmp
+                do_umount ${DOM0_MOUNT}/dev
+                do_umount ${DOM0_MOUNT}/sys
+                do_umount ${DOM0_MOUNT}
+
+                return 0
             fi
+
+            do_umount ${DOM0_MOUNT}/boot/system
+            do_umount ${DOM0_MOUNT}/tmp
+            do_umount ${DOM0_MOUNT}/dev
+            do_umount ${DOM0_MOUNT}/sys
+            do_umount ${DOM0_MOUNT}
+            return 1
         fi
     fi
 }
@@ -415,8 +499,7 @@ mount_config()
         do_mount /dev/mapper/config ${DOM0_MOUNT}/config   || return 1
     elif [ ! "${EXISTING_MEASURED_STATE}" = "true" ]; then
         echo "mount_config: not sealed, not luksOpen-ed, using platform key to mount ..." >&2
-        eval get-config-key | cryptsetup -q -d - luksOpen \
-            "/dev/xenclient/config" config >&2
+        platform_unlock "/dev/xenclient/config" config >&2
         if [ $? -eq 0 ]; then
             echo "mount_config: config mapped successfully, mounting" >&2
             do_mount /dev/mapper/config ${DOM0_MOUNT}/config || return 1
@@ -424,7 +507,13 @@ mount_config()
             echo "mount_config: ERROR luksOpen-ing /dev/xenclient/config" >&2
         fi
     else # not already mounted, mapped and platform state is sealed
-        echo "mount_config: /config not already mounted or mapped, and platform is sealed.  Cannot access /config" >&2
+        recovery_unlock "/dev/xenclient/config" config >&2
+        if [ $? -eq 0 ]; then
+            echo "mount_config: config mapped successfully, mounting" >&2
+            do_mount /dev/mapper/config ${DOM0_MOUNT}/config || return 1
+        else
+            echo "mount_config: ERROR luksOpen-ing /dev/xenclient/config" >&2
+        fi
     fi
 
     return 0
@@ -846,28 +935,16 @@ own_tpm()
         return 1
     fi
 
-    if [ ! -r ${RECOVERY_PUBLIC_KEY_CONF} ]; then
-        echo "No recovery key: ${RECOVERY_PUBLIC_KEY_CONF}" >&2
-        echo "Cannot encrypt generated TPM key." >&2
-        return 1
-    fi
-
-    tpm_configure_gen_passwd  "${RECOVERY_PUBLIC_KEY_CONF}" "${TPM_OWNER_PASSWD_SSL}" "${TPM_EK}"
+    local own_key=$(gen_own_key)
+    tpm_take_ownership  "${own_key}" "${TPM_EK}"
     if [ $? -ne 0 ]; then
-        echo "tpm_configure_gen_passwd failed" >&2
-        [ -f "${TPM_OWNER_PASSWD_SSL}" ] && rm "${TPM_OWNER_PASSWD_SSL}"
+        echo "taking tpm ownership failed" >&2
+        [ -f "${own_key}" ] && rm "${own_key}"
         return 1
     fi
     
-    # XC-9642 files in DOM0_SENSITIVE_CONFIGS are copied before commit
-    #   must manually move ${TPM_OWNER_PASSWD_SSL} currently
-    [ ! -d ${DOM0_MOUNT}/boot/system/config ] && mkdir -p ${DOM0_MOUNT}/boot/system/config
-    # make noise about squasing old encrypted password file
-    if [ -e "${TPM_OWNER_PASSWD_SSL}" ]; then
-        echo "TPM_OWNDER_PASSWD_SSL exists already but TPM wasn't owned." >&2
-        echo "Overwriting old passwd file with new." >&2
-    fi
-    mv "${TPM_OWNER_PASSWD_SSL}" ${DOM0_MOUNT}/boot/system/config || return 1
+    generate_policy "${own_key}"
 
+    [ -f "${own_key}" ] && rm "${own_key}"
     return 0
 }
