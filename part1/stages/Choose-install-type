@@ -107,19 +107,20 @@ else
 fi
 
 local ARG=
-ARG="${ARG} \"CD-ROM\" \"\"" 
-ARG="${ARG} \"Network\" \"\"" 
+ARG="${ARG} \"CD-ROM\"" 
+ARG="${ARG} \"Network\"" 
 
 if bootfs_includes_packages ; then
-    ARG="${ARG} \"Boot media\" \"\"" 
+    ARG="${ARG} \"Boot media\"" 
 else
-    ARG="${ARG} \"USB\" \"\"" 
-    ARG="${ARG} \"iSCSI\" \"\"" 
+    ARG="${ARG} \"USB\"" 
+    ARG="${ARG} \"iSCSI\"" 
 fi
 
     local CAPTURE=$(mktemp -t)
     echo ${ARG} | xargs dialog --ok-label Select \
                                 --cancel-label Previous \
+                                --no-items \
                                 --default-item "CD-ROM" \
                                 --menu "Select repository location" \
                                 7 40 0 2>${CAPTURE}

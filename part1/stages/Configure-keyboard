@@ -39,9 +39,10 @@ choose_keyboard()
 
     DEFAULT_KEYBOARD_NAME="$(get_keyboard_name "${DEFAULT_KEYBOARD}")"
     
-    awk -F: '$2 == "y" { print "\"" $5 "\" \"\"" }' "${KEYBOARDS_LIST}" |
+    awk -F: '$2 == "y" { print "\"" $5 "\"" }' "${KEYBOARDS_LIST}" |
         xargs dialog --ok-label Select \
                      --cancel-label Previous \
+                     --no-items \
                      --default-item "${DEFAULT_KEYBOARD_NAME}" \
                      --menu "Select keyboard layout" 7 40 0 2>${CAPTURE}
     OPT=$?
