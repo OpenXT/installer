@@ -23,13 +23,13 @@ not_previous || exit ${Previous}
 # return true if enabled
 check_vtx()
 {
-    xenops physinfo | grep 'hvm' >/dev/null 2>&1
+    xl info | grep 'virt_caps' | grep -w 'hvm' >/dev/null 2>&1
 }
 
 # return true if enabled
 check_vtd()
 {
-    xenops physinfo | grep 'directio' >/dev/null 2>&1
+    xl info | grep 'virt_caps' | grep -w 'hvm_directio' >/dev/null 2>&1
 }
 
 msg=""
