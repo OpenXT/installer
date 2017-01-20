@@ -215,27 +215,6 @@ The following command can be used to generate an encrypted password:
     $ openssl passwd -1
 
 ######################################################################
-<recovery-public-key>-----BEGIN PUBLIC KEY-----
-.
-.
------END PUBLIC KEY-----</recovery-public-key>
-
-<recovery-private-key>-----BEGIN RSA PRIVATE KEY-----
-.
-.
------END RSA PRIVATE KEY-----</recovery-private-key>
-
-Optional.
-These tags specify a public/private key pair which will enable the
-user to recover a forgotten password for an encrypted virtual disk.
-
-The following commands can be used to generate a public/private key
-pair with a passphrase:
-
-    $ openssl genrsa -des3 -out private_key 2048
-    $ openssl rsa -pubout -in private_key -out public_key
-
-######################################################################
 <enable-ssh>true</enable-ssh>
 <enable-ssh>false</enable-ssh>
 

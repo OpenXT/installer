@@ -37,14 +37,8 @@ if [ "${INSTALL_MODE}" = "fresh" ] ; then
     do_cmd mkdir -p "${DOM0_MOUNT}/config/install" || exit ${Abort}
 
     for FILE in ${ALL_DOM0_CONFIGS} ; do
-        case $(basename "${FILE}") in
-            recovery-*-key.conf|recovery-disk-key.ssl|tpm-owner-passwd.ssl)
-                ;;
-            *)
-                do_cmd mv "${FILE}" "${DOM0_MOUNT}/config/install" || \
-                    exit ${Abort}
-                ;;
-        esac
+        do_cmd mv "${FILE}" "${DOM0_MOUNT}/config/install" || \
+            exit ${Abort}
     done
 fi
 

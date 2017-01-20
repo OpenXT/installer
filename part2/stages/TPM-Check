@@ -28,6 +28,14 @@ else
     . ${TPM_FUNCS}
 fi
 
+MLE_FUNCS=/usr/lib/openxt/ml-functions
+if [ ! -f ${MLE_FUNCS} ]; then
+    echo "No ml-function library found at ${MLE_FUNCS}.  ABORT" >&2
+    exit ${Abort}
+else
+    . ${MLE_FUNCS}
+fi
+
 CHECK_MSG="Checking availability of TXT & TPM."
 TPM_GAUGE=4
 TPM_GAUGE_STEP=16

@@ -62,7 +62,7 @@ while true; do
         CAPTURE=$(mktemp -t)
         while true; do
             dialog --cancel-label Skip --insecure --passwordbox \
-                "Please provide former installation password" 0 50 "" 2> ${CAPTURE}
+                "Please provide former recovery password" 0 50 "" 2> ${CAPTURE}
             OPT="$?"
             if [ ${OPT} != 0 ] ; then
                 rm -f ${CAPTURE}
@@ -70,11 +70,7 @@ while true; do
                 [ ${OPT} != 255 ] || SKIP=1 && break
                 exit ${Abort}
             fi
-            PRIVATE_KEY=${STATUS_MOUNT}/boot/system/config/recovery-private-key.conf
-            DISK_KEY_SSL=${STATUS_MOUNT}/boot/system/config/recovery-disk-key.ssl
             cat ${CAPTURE} | \
-                do_cmd openssl rsautl -decrypt -inkey ${PRIVATE_KEY} \
-                -in ${DISK_KEY_SSL} -passin stdin | \
                 do_cmd cryptsetup -q -d - luksOpen /dev/xenclient/config config || {
                 rm -f ${CAPTURE}
                 continue
