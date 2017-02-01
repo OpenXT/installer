@@ -47,7 +47,7 @@ fi
 
 for BLOCK in /sys/block/${DEFAULT_USB_DEVICE}* ; do
     DEV=$(basename "${BLOCK}")
-    if /lib/udev/path_id "/block/${DEV}" | egrep -q ".*-usb-.*" ; then
+    if /usr/bin/udevadm test-builtin path_id "/block/${DEV}" | egrep -q ".*-usb-.*" ; then
         for i in /dev/${DEV}* ; do
             do_mount -o ro ${i} ${TEMP_USB_MOUNT} >&2 || continue
 
