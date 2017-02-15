@@ -50,7 +50,14 @@ update_gauge() {
 }
 # dump attributes of the systems TPM into the log
 log_tpm_attrs() {
-    tpm_version >&2
+    is_tpm_2_0
+    tpm2=$?
+    if [ "${tpm2}" -eq 0 ];
+    then
+        tpm2_dump_capability --capability=properties-fixed >&2
+    else
+        tpm_version >&2
+    fi
     if [ $? -ne 0 ]; then
         echo "Error getting TPM Version data" >&2
         return 1

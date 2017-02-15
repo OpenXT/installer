@@ -369,9 +369,13 @@ commit_dom0()
 
     install_bootloader_from_dom0fs || return 1
 
+    mixedgauge "Taking ownership of TPM" 50
+
     if [ "${MEASURE_LAUNCH}" = "true" ]; then
         own_tpm || return 1
     fi
+
+    mixedgauge "Taking ownership of TPM" 100
 
     # handle refresh cases & measured launch misery
     if [ "${INSTALL_MODE}" = "upgrade" ]; then
@@ -414,9 +418,9 @@ seal_system() {
             if [ $? -eq 1 ]; then
                 echo "seal_system: /config is mounted, forward sealing key" >&2
 
-		/etc/init.d/trousers stop
+                /etc/init.d/trousers stop
                 chroot ${DOM0_MOUNT} /usr/sbin/seal-system -f -r ${ROOT_DEV}
-		/etc/init.d/trousers start
+                /etc/init.d/trousers start
 
                 do_umount ${DOM0_MOUNT}/config
                 do_umount ${DOM0_MOUNT}/boot/system
@@ -694,7 +698,7 @@ write_rootfs()
         none)
             do_cmd mkfs.ext3 -q ${DEVICE} >&2 || return 1
             do_cmd tune2fs -i 0 -c -1 -m 0 ${DEVICE} || return 1
-	    ;;	    
+            ;;
         *)
             echo "Unknown image type '${IMG_TYPE}'" >&2
             return 1
@@ -910,8 +914,16 @@ own_tpm()
         return 1
     fi
 
-    local own_key=$(gen_own_key)
-    tpm_take_ownership  "${own_key}" "${TPM_EK}"
+    is_tpm_2_0
+    tpm2=$?
+    if [ "${tpm2}" -eq 0 ]; then
+        local own_key=$(get_own_key)
+        tpm_take_ownership  $(cat "${own_key}") "${TPM_EK}"
+    else
+        local own_key=$(gen_own_key)
+        tpm_take_ownership  "${own_key}" "${TPM_EK}"
+    fi
+
     if [ $? -ne 0 ]; then
         echo "taking tpm ownership failed" >&2
         [ -f "${own_key}" ] && rm "${own_key}"
