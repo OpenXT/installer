@@ -35,7 +35,7 @@ mk_xc_lvm()
     do_cmd lvresize -f /dev/xenclient/storage -L-1G || return 1
 
     do_cmd vgscan --mknodes || return 1
-    do_cmd vgchange -a y || return 1
+    do_cmd vgchange -a y xenclient || return 1
 }
 
 apply_xc_packages()
