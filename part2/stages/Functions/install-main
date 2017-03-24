@@ -398,35 +398,8 @@ commit_dom0()
 seal_system() {
     if [ "${INSTALL_MODE}" = "upgrade" ]; then
         if [ "${EXISTING_MEASURED_STATE}" = "true" ]; then
-            do_mount -o ro ${ROOT_DEV} ${DOM0_MOUNT} ||
+            mount_dom0 ${ROOT_DEV} ||
                 return 1
-
-            do_mount -o bind /sys ${DOM0_MOUNT}/sys || {
-                echo "failed to bind mount sysfs" >&2
-                do_umount ${DOM0_MOUNT}
-                return 1
-            }
-            do_mount -o bind /dev ${DOM0_MOUNT}/dev || {
-                echo "failed to bind mount dev" >&2
-                do_umount ${DOM0_MOUNT}/sys
-                do_umount ${DOM0_MOUNT}
-                return 1
-            }
-            do_mount -o size=32M -t tmpfs tmpfs ${DOM0_MOUNT}/tmp || {
-                echo "failed to bind mount dev" >&2
-                do_umount ${DOM0_MOUNT}/dev
-                do_umount ${DOM0_MOUNT}/sys
-                do_umount ${DOM0_MOUNT}
-                return 1
-            }
-            do_mount -o bind /boot/system ${DOM0_MOUNT}/boot/system || {
-                echo "failed to mount boot" >&2
-                do_umount ${DOM0_MOUNT}/tmp
-                do_umount ${DOM0_MOUNT}/dev
-                do_umount ${DOM0_MOUNT}/sys
-                do_umount ${DOM0_MOUNT}
-                return 1
-            }
 
             mount_config || {
                 echo "failed to mount config" >&2
@@ -450,6 +423,7 @@ seal_system() {
                 do_umount ${DOM0_MOUNT}/tmp
                 do_umount ${DOM0_MOUNT}/dev
                 do_umount ${DOM0_MOUNT}/sys
+                do_umount ${DOM0_MOUNT}/proc
                 do_umount ${DOM0_MOUNT}
 
                 return 0
@@ -459,6 +433,7 @@ seal_system() {
             do_umount ${DOM0_MOUNT}/tmp
             do_umount ${DOM0_MOUNT}/dev
             do_umount ${DOM0_MOUNT}/sys
+            do_umount ${DOM0_MOUNT}/proc
             do_umount ${DOM0_MOUNT}
             return 1
         fi
@@ -468,7 +443,7 @@ seal_system() {
 mount_dom0()
 {
     local ROOT="$1"
-    local tmpfsopts="size=16M"
+    local tmpfsopts="size=32M"
 
     do_mount -o ro ${ROOT} ${DOM0_MOUNT}                   || return 1
     do_mount -o bind /proc ${DOM0_MOUNT}/proc              || return 1
