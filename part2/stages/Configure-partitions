@@ -82,7 +82,7 @@ partition_exists()
 {
     local PARTITION="$1"
 
-    [ -b "/dev/${PARTITION}" ]
+    [ -b "/dev/$(get_partition_node ${PARTITION})" ]
 }
 
 is_xc_partition()

@@ -47,9 +47,9 @@ remove_existing_partitions()
         mixedgauge "Removing disk partitions..." 5
 
         for P in ${REMOVE_PARTITIONS} ; do
-            local DISK=$(get_partition_disk "${PARTITION}")
-            local PARTITION_NUM=$(get_partition_number "${PARTITION}")
-            local NODE=$(get_partition_node "${PARTITION}")
+            local DISK=$(get_partition_disk "${P}")
+            local PARTITION_NUM=$(get_partition_number "${P}")
+            local NODE=$(get_partition_node "${P}")
             local DISK_DEV="/dev/${DISK}"
             local PARTITION_DEV="/dev/${NODE}"
 
