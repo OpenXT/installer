@@ -5,10 +5,11 @@ Initialise-state,             Continue:Examine-repository | Abort:Unexpected-fai
 Examine-repository,           Continue:Find-existing-install | Abort:Unexpected-failure
 Find-existing-install,        Install:Select-hard-disk | Upgrade:Ready-to-upgrade | Abort:Fail
 
-Select-hard-disk,             Continue:Configure-partitions | Abort:Fail
+Select-hard-disk,             Continue:Warn-disk-erasure | Abort:Fail
+Warn-disk-erasure,            Continue:Remove-partitions | Abort:Fail
+Remove-partitions,            Continue:Configure-partitions | Abort:Fail
 Configure-partitions,         Continue:Configure-MBR | Abort:Fail
-Configure-MBR,                Continue:Warn-disk-erasure | Abort:Fail
-Warn-disk-erasure,            Continue:Set-password | Abort:Fail
+Configure-MBR,                Continue:Set-password | Abort:Fail
 
 Set-password,                 Continue:Enable-SSH | Abort:Fail
 Enable-SSH,                   Continue:TPM-Begin | Abort:Fail
