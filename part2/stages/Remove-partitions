@@ -22,8 +22,8 @@
 . ${DISK_CONF}
 # ^^^ defines ${TARGET_DISK}
 
-do_cmd dd if=/dev/zero of=/dev/${TARGET_DISK} bs=512 count=1
+do_cmd dd if=/dev/zero of=/dev/${TARGET_DISK} bs=512 count=1 >&2
 do_cmd vgchange -a n >&2 || exit ${Abort}
-do_cmd hdparm -z /dev/${TARGET_DISK}
+do_cmd hdparm -z /dev/${TARGET_DISK} >&2
 
 exit ${Continue}
