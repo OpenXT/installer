@@ -64,7 +64,7 @@ else
     echo 'VTd="False"' >>"${HOST_CAPABILITY_CONF}"
     warning=1
 fi
-echo ${msg} >&2
+echo -e ${msg} >&2
 
 if ! interactive ; then
     [ "${warning}" -ne "1" ] || echo -e "\nWARNING: $msg Check the BIOS settings.\n">&2
