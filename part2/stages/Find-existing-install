@@ -34,7 +34,8 @@ detect_prior_installation()
     do_cmd vgs xenclient >&2 || return
 
     # read the version information from the detected filesystem:
-    mount_existing_dom0 "${EXISTING_DOM0_MOUNT}"
+    mount_existing_dom0 "${EXISTING_DOM0_MOUNT}" || return
+
     local EXISTING_VERSION_FILE="${EXISTING_DOM0_MOUNT}/etc/xenclient.conf"
     EXISTING_VERSION="$(sed -ne 's/^version = //p' <${EXISTING_VERSION_FILE})"
     EXISTING_RELEASE="$(sed -ne 's/^release = //p' <${EXISTING_VERSION_FILE})"

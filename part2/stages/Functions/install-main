@@ -846,6 +846,7 @@ mount_existing_dom0()
 {
     local MNT="$1"
 
+    [ -b "/dev/mapper/xenclient-root" ] || return 1
     CURRENT_MNT=$(grep "^/dev/mapper/xenclient-root " /proc/mounts |
                   cut -f2 -d' ')
 
