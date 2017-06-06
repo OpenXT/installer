@@ -22,6 +22,41 @@
 . ${DISK_CONF}
 # ^^^ defines ${TARGET_DISK}
 
+# Remove every VG assigned to that disk.
+vgs=$(vgs --noheading -o vg_name)
+for vg in ${vgs}; do
+    pvs_on_target=$(vgs --noheading -o pv_name ${vg} | grep ${TARGET_DISK})
+    pvs_others=$(vgs --noheading -o pv_name ${vg} | grep -v ${TARGET_DISK})
+
+    # Ignore VG not on the target disk.
+    if [ -z "${pvs_on_target}" ]; then
+        continue
+    fi
+
+    # If possible, try to move PE to non-targeted PV.
+    # Otherwise, assume the user is knowingly wiping the entire disk with every
+    # LV/VG on it (common use case involving only one disk).
+    if [ -n "${pvs_others}" ]; then
+        for pv in ${pvs_on_target}; do
+            if ! pvmove ${pv} ${pvs_others} >&2; then
+                # We should probably ask for confirmation here...
+                # Maybe this was done willingly.
+                exit ${Abort}
+            fi
+            # Remove each PV on the target disk from the VG.
+            do_cmd vgreduce ${vg} ${pv} >&2
+        done
+    else
+        # Every PV on the target disk, so wipe the VG.
+        do_cmd vgremove -f ${vg} >&2
+    fi
+
+    # Wipe labels on each PV.
+    for pv in ${pvs_on_target}; do
+        do_cmd pvremove -f ${pv} >&2
+    done
+done
+
 do_cmd dd if=/dev/zero of=/dev/${TARGET_DISK} bs=512 count=1 >&2
 do_cmd vgchange -a n >&2 || exit ${Abort}
 do_cmd hdparm -z /dev/${TARGET_DISK} >&2
