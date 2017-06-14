@@ -230,6 +230,9 @@ install_dom0()
     do_cmd mkdir -p -m 500 ${DOM0_MOUNT}/config/keys        >&2 || return 1
     do_cmd mkdir -p -m 500 ${DOM0_MOUNT}/config/sec         >&2 || return 1
 
+    # prepare lvm directory to store lvm metadata backups.
+    do_cmd mkdir -p -m 755 ${DOM0_MOUNT}/config/etc/lvm     >&2 || return 1
+
     #
     # log
     #
