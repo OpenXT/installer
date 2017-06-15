@@ -25,7 +25,6 @@
 mk_xc_partition_layout()
 {
     deactivate_lvm             || return 1
-    remove_existing_partitions || return 1
     create_xc_partition        || return 1
     return 0
 }
@@ -37,34 +36,6 @@ deactivate_lvm()
     if ! do_cmd vgchange -a n >&2 ; then
         echo "ERROR: Failure deactivating existing logical volumes." >&2
         return 1
-    fi
-    return 0
-}
-
-remove_existing_partitions()
-{
-    if [ "${REMOVE_PARTITIONS}" ] ; then
-        mixedgauge "Removing disk partitions..." 5
-
-        for P in ${REMOVE_PARTITIONS} ; do
-            local DISK=$(get_partition_disk "${P}")
-            local PARTITION_NUM=$(get_partition_number "${P}")
-            local NODE=$(get_partition_node "${P}")
-            local DISK_DEV="/dev/${DISK}"
-            local PARTITION_DEV="/dev/${NODE}"
-
-            # Ignore errors returned by pvremove here as there may not
-            # actually be any LVM state to remove. Any important failures
-            # here will also cause the later creation commands to fail, so
-            # handle errors there.
-            do_cmd pvremove -ff -y "${PARTITION_DEV}" >&2
-
-            do_cmd fdisk -u "${DISK_DEV}" <<EOF >&2
-d
-${PARTITION_NUM}
-w
-EOF
-        done
     fi
     return 0
 }
