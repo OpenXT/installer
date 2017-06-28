@@ -22,16 +22,22 @@ mk_xc_lvm()
     local PARTITION_DEV="$1"
     do_cmd pvcreate -ff -y "${PARTITION_DEV}" || return 1
     do_cmd vgcreate xenclient "${PARTITION_DEV}" || return 1
-    do_cmd lvcreate --name boot     --size  12M /dev/xenclient || return 1
-    do_cmd lvcreate --name config   --size  12M /dev/xenclient || return 1
-    do_cmd lvcreate --name root     --size ${DOM0_ROOT_LV_SIZE} \
-                                                /dev/xenclient || return 1
-    do_cmd lvcreate --name root.new --size ${DOM0_ROOT_LV_SIZE} \
-                                                /dev/xenclient || return 1
-    do_cmd lvcreate --name swap     --size 256M /dev/xenclient || return 1
-    do_cmd lvcreate --name log      --size  64M /dev/xenclient || return 1
-    do_cmd lvcreate --name cores    --size  64M /dev/xenclient || return 1
-    do_cmd lvcreate --name storage -l +100%FREE  /dev/xenclient || return 1
+    do_cmd lvcreate --wipesignatures y --zero y --yes \
+                    --name boot --size 12M /dev/xenclient || return 1
+    do_cmd lvcreate --wipesignatures y --zero y --yes \
+                    --name config --size 12M /dev/xenclient || return 1
+    do_cmd lvcreate --wipesignatures y --zero y --yes \
+                    --name root --size ${DOM0_ROOT_LV_SIZE} /dev/xenclient || return 1
+    do_cmd lvcreate --wipesignatures y --zero y --yes \
+                    --name root.new --size ${DOM0_ROOT_LV_SIZE} /dev/xenclient || return 1
+    do_cmd lvcreate --wipesignatures y --zero y --yes \
+                    --name swap --size 256M /dev/xenclient || return 1
+    do_cmd lvcreate --wipesignatures y --zero y --yes \
+                    --name log --size 64M /dev/xenclient || return 1
+    do_cmd lvcreate --wipesignatures y --zero y --yes \
+                    --name cores --size 64M /dev/xenclient || return 1
+    do_cmd lvcreate --wipesignatures y --zero y --yes \
+                    --name storage -l +100%FREE /dev/xenclient || return 1
     do_cmd lvresize -f /dev/xenclient/storage -L-1G || return 1
 
     do_cmd vgscan --mknodes || return 1
@@ -328,8 +334,10 @@ upgrade_dom0()
     DOM0_SIZE_BYTES=$(zcat ${DOM0_ROOTFS} | wc -c)
     DOM0_ROOT_LV_SIZE=$(((${DOM0_SIZE_BYTES} / 1048576) + 1))M
 
-    do_cmd lvcreate --name `basename ${ROOT_DEV}.new` \
-        --size ${DOM0_ROOT_LV_SIZE} `dirname ${ROOT_DEV}.new` >&2 || return 1
+    do_cmd lvcreate --wipesignatures y --zero y --yes \
+                    --name `basename ${ROOT_DEV}.new` \
+                    --size ${DOM0_ROOT_LV_SIZE}  \
+                    `dirname ${ROOT_DEV}.new` >&2 || return 1
     write_rootfs ${DOM0_ROOTFS} ${ROOTFS_TYPE} ${ROOT_DEV}.new >&2 || {
         do_cmd lvremove -f ${ROOT_DEV}.new >&2
         return 1
