@@ -6,10 +6,7 @@ Examine-repository,           Continue:Find-existing-install | Abort:Unexpected-
 Find-existing-install,        Install:Select-hard-disk | Upgrade:Ready-to-upgrade | Abort:Fail
 
 Select-hard-disk,             Continue:Warn-disk-erasure | Abort:Fail
-Warn-disk-erasure,            Continue:Remove-partitions | Abort:Fail
-Remove-partitions,            Continue:Configure-partitions | Abort:Fail
-Configure-partitions,         Continue:Configure-MBR | Abort:Fail
-Configure-MBR,                Continue:Set-password | Abort:Fail
+Warn-disk-erasure,            Continue:Set-password | Abort:Fail
 
 Set-password,                 Continue:Enable-SSH | Abort:Fail
 Enable-SSH,                   Continue:TPM-Begin | Abort:Fail
@@ -36,7 +33,10 @@ Ready-to-upgrade,             Continue:Upgrade-hook | Abort:Fail
 Upgrade-hook,                 Continue:Install-upgrade | Abort:Fail
 Install-upgrade,              Continue:Post-install-hook | Abort:Unexpected-failure
 
-Ready-to-install,             Continue:Install-hook | Abort:Fail
+Ready-to-install,             Continue:Remove-partitions | Abort:Fail
+Remove-partitions,            Continue:Configure-partitions | Abort:Fail
+Configure-partitions,         Continue:Configure-MBR | Abort:Fail
+Configure-MBR,                Continue:Install-hook | Abort:Fail
 Install-hook,                 Continue:Make-XC-partition | Abort:Fail
 Make-XC-partition,            Continue:Install-fresh | Abort:Fail
 Install-fresh,                Continue:Post-install-hook | Abort:Unexpected-failure
