@@ -468,6 +468,8 @@ mount_dom0()
         tmpfsopts="$tmpfsopts,rootcontext=system_u:object_r:tmp_t:s0"
     fi
     do_mount -t tmpfs -o $tmpfsopts tmpfs ${DOM0_MOUNT}/tmp  || return 1
+    mount -t securityfs | grep -q -s 'securityfs' >&2
+    [ $? -eq 0 ] && ( do_mount -o bind /sys/kernel/security ${DOM0_MOUNT}/sys/kernel/security || return 1 )
     mount -t selinuxfs | grep -q -s 'selinuxfs' >&2
     [ $? -eq 0 ] && ( do_mount -o bind /selinux ${DOM0_MOUNT}/selinux || return 1 )
     # FIXME - revisit this for XC-5161:
