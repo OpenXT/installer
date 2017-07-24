@@ -496,14 +496,8 @@ mount_config()
         else
             echo "mount_config: ERROR luksOpen-ing /dev/xenclient/config" >&2
         fi
-    else # not already mounted, mapped and platform state is sealed
-        recovery_unlock "/dev/xenclient/config" config "${DOM0_MOUNT}" >&2
-        if [ $? -eq 0 ]; then
-            echo "mount_config: config mapped successfully, mounting" >&2
-            do_mount /dev/mapper/config ${DOM0_MOUNT}/config || return 1
-        else
-            echo "mount_config: ERROR luksOpen-ing /dev/xenclient/config" >&2
-        fi
+    else # not already mounted or mapped and platform state is sealed
+        return 1
     fi
 
     return 0
