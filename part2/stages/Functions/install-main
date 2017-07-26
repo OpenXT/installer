@@ -392,8 +392,7 @@ commit_dom0()
     if [ "${INSTALL_MODE}" = "upgrade" ]; then
         echo "commit_dom0: we're doing an upgrade" >&2
         mount_config || return 1
-        is_mounted ${DOM0_MOUNT}/config
-        if [ $? -eq 1 ]; then
+        if is_mounted ${DOM0_MOUNT}/config ; then
             echo "commit_dom0: ${DOM0_MOUNT}/config is mounted" >&2
             echo "commit_dom0: touching rehash-vms" >&2
             touch ${DOM0_MOUNT}/config/rehash-vms
@@ -425,8 +424,8 @@ seal_system() {
                 do_umount ${DOM0_MOUNT}
                 return 1
             }
-            is_mounted ${DOM0_MOUNT}/config
-            if [ $? -eq 1 ]; then
+
+            if is_mounted ${DOM0_MOUNT}/config ; then
                 echo "seal_system: /config is mounted, forward sealing key" >&2
 
                 /etc/init.d/trousers stop
@@ -480,8 +479,7 @@ mount_dom0()
 mount_config()
 {
     # mount /config in the proper place if we can, bind it if already mounted
-    is_mounted /config
-    if [ $? -eq 1 ]; then
+    if is_mounted /config ; then
         echo "mount_config: /config mounted, binding to ${DOM0_MOUNT}/config" >&2
         do_mount -o bind /config ${DOM0_MOUNT}/config
         return $?
@@ -902,17 +900,14 @@ mount_existing_log()
     return 0
 }
 
-# return 1 if there's something mounted on the provided path
-# else 0
+# return true (0) if there's something mounted on the provided path
+# else false (1)
 is_mounted()
 {
     local MOUNT_PT=$1
-    cat /proc/mounts | awk '{ print $2 }' | grep -q "^${MOUNT_PT}$"
-    if [ $? -eq 0 ]; then
-        return 1
-    else
-        return 0
-    fi
+    cat /proc/mounts | \
+      awk '{ print $2 }' | \
+      grep -q "^${MOUNT_PT}$" 1>/dev/null 2>&1
 }
 
 # take ownership of TPM if necessary
