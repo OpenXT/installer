@@ -913,8 +913,7 @@ is_mounted()
 }
 
 # take ownership of TPM if necessary
-own_tpm()
-{
+own_tpm() {
     if [ "${TPM_STATE}" != "active" ]; then
         echo "TPM sate not active, canot own_tpm" >&2
         return 1
@@ -928,6 +927,15 @@ own_tpm()
             echo "taking tpm ownership failed" >&2
             return 1
         fi
+    fi
+
+    if ! tpm_handles_defined; then
+        local err
+
+        err=$( tpm_create_handles "${own_key}" ) || {
+            echo "error creating TPM handles: ${err}" >&2
+            return 1
+        }
     fi
 
     generate_policy "${own_key}"
