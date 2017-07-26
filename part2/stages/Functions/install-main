@@ -483,30 +483,31 @@ mount_config()
     is_mounted /config
     if [ $? -eq 1 ]; then
         echo "mount_config: /config mounted, binding to ${DOM0_MOUNT}/config" >&2
-        do_mount -o bind /config ${DOM0_MOUNT}/config      || return 1
+        do_mount -o bind /config ${DOM0_MOUNT}/config
+        return $?
     elif [ -e /dev/mapper/config ]; then
         echo "mount_config: config partition is already mapped, mounting" >&2
-        do_mount /dev/mapper/config ${DOM0_MOUNT}/config   || return 1
     elif [ ! "${EXISTING_MEASURED_STATE}" = "true" ]; then
         echo "mount_config: not sealed, not luksOpen-ed, using platform key to mount ..." >&2
         platform_unlock "/dev/xenclient/config" config >&2
         if [ $? -eq 0 ]; then
             echo "mount_config: config mapped successfully, mounting" >&2
-            do_mount /dev/mapper/config ${DOM0_MOUNT}/config || return 1
         else
             echo "mount_config: ERROR luksOpen-ing /dev/xenclient/config" >&2
+            return 1
         fi
     else # not already mounted, mapped and platform state is sealed
         recovery_unlock "/dev/xenclient/config" config "${DOM0_MOUNT}" >&2
         if [ $? -eq 0 ]; then
             echo "mount_config: config mapped successfully, mounting" >&2
-            do_mount /dev/mapper/config ${DOM0_MOUNT}/config || return 1
         else
             echo "mount_config: ERROR luksOpen-ing /dev/xenclient/config" >&2
+            return 1
         fi
     fi
 
-    return 0
+    # Return value of this command is return value for function
+    do_mount /dev/mapper/config ${DOM0_MOUNT}/config
 }
 
 install_bootloader_from_dom0fs()
