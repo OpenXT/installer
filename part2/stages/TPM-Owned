@@ -32,18 +32,13 @@ if [ "${MEASURE_LAUNCH}" = "true" ]; then
              "system BIOS administrative interface." >&2
         exit ${Abort}
     else
-        dialog --colors --extra-button \
-        --extra-label "Retry" \
-        --yes-label "Reboot" --no-label "Continue" --yesno "
+        dialog --colors --extra-button --extra-label "Retry" \
+          --ok-label "Reboot" --cancel-label "Continue" --yesno "
  The TPM in your platform is already owned.
 
- ${PRODUCT_BRAND} Measured Launch requires sole
- ownership of the platform TPM and you have
- not provided the owner password.
+ ${PRODUCT_BRAND} Measured Launch requires sole ownership of the platform TPM and you have not provided the owner password.
 
- You may either \ZbReboot\ZB and clear your
- TPM in the BIOS configuration or \ZbContinue\ZB
- with ${PRODUCT_BRAND} Measured Launch disabled." 14 49
+ You may either \ZbReboot\ZB and clear your TPM in the BIOS configuration, \ZbRetry\ZB a new TPM owner password or \ZbContinue\ZB with ${PRODUCT_BRAND} Measured Launch disabled." 14 49
         case $? in
             1) exit ${Continue} ;;
             3) # User pressed Retry
