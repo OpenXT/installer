@@ -151,6 +151,8 @@ else
     cp -f "${LOCAL_ANSWERFILE}" "${FULL_ANSWERFILE}"
 fi
 
+rm -f "${LOCAL_ANSWERFILE}"
+
 [ -r "${FULL_ANSWERFILE}" ] || exit ${Abort}
 
 # The answerfile can specify "interactive": in this way, any entries
