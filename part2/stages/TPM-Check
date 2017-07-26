@@ -20,6 +20,10 @@
 . ${SCRIPT_DIR}/functions
 . ${MEASURED_LAUNCH_CONF}
 
+if [ "${MEASURE_LAUNCH}" = "false" ]; then
+    exit ${Continue}
+fi
+
 TPM_FUNCS=/usr/lib/tpm-scripts/tpm-functions
 if [ ! -f ${TPM_FUNCS} ]; then
     echo "No tpm-function library found at ${TPM_FUNCS}.  ABORT" >&2

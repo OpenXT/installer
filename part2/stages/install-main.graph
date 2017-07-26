@@ -6,19 +6,19 @@ Examine-repository,           Continue:Find-existing-install | Abort:Unexpected-
 Find-existing-install,        Install:Select-hard-disk | Upgrade:Ready-to-upgrade | Abort:Fail
 
 Select-hard-disk,             Continue:Warn-disk-erasure | Abort:Fail
-Warn-disk-erasure,            Continue:Set-password | Abort:Fail
+Warn-disk-erasure,            Continue:TPM-Begin | Abort:Fail
 
+TPM-Begin,                    Continue:Set-password | Abort:TPM-RUSure
 Set-password,                 Continue:Enable-SSH | Abort:Fail
-Enable-SSH,                   Continue:TPM-Begin | Abort:Fail
+Enable-SSH,                   Continue:TPM-Check | Abort:Fail
 
-TPM-Begin,                    Continue:TPM-Check | Abort:TPM-RUSure
 TPM-Check,                    Continue:Configure-VHDs | TpmBadSrk:TPM-BadSrk | TpmDisabled:TPM-Disabled | TpmInactive:TPM-Inactive | TpmOwned:TPM-Owned | TxtFail:TXT-Fail | Abort:Unexpected-failure
 TPM-BadSrk,                   Continue:TPM-RUSure | Abort:Fail
 TPM-Disabled,                 Continue:TPM-RUSure | Abort:Fail
 TPM-Inactive,                 Continue:TPM-RUSure | Abort:Fail
 TPM-Owned,                    Continue:TPM-RUSure | Abort:Fail
 TXT-Fail,                     Continue:TPM-RUSure | Abort:Fail
-TPM-RUSure,                   Continue:Configure-VHDs | Abort:Fail
+TPM-RUSure,                   Continue:Set-password | Abort:Fail
 
 Configure-VHDs,               Continue:Configure-VMs | Abort:Fail
 Configure-VMs,                Network:Ensure-network-up{vm} | NoNetwork:Ready-to-install | Abort:Fail
