@@ -922,16 +922,14 @@ own_tpm()
         return 1
     fi
 
-    if [ "${TPM_OWNED}" = "true" ]; then
-        echo "TPM is owned, cannot own_tpm" >&2
-        return 1
-    fi
-
     local own_key=$(get_own_key)
-    tpm_take_ownership  "${own_key}" "${TPM_EK}"
-    if [ $? -ne 0 ]; then
-        echo "taking tpm ownership failed" >&2
-        return 1
+
+    if [ "${TPM_OWNED}" = "false" ]; then
+        tpm_take_ownership  "${own_key}" "${TPM_EK}"
+        if [ $? -ne 0 ]; then
+            echo "taking tpm ownership failed" >&2
+            return 1
+        fi
     fi
 
     generate_policy "${own_key}"
