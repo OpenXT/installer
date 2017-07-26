@@ -9,10 +9,9 @@ Select-hard-disk,             Continue:Warn-disk-erasure | Abort:Fail
 Warn-disk-erasure,            Continue:TPM-Begin | Abort:Fail
 
 TPM-Begin,                    Continue:Set-password | Abort:TPM-RUSure
-Set-password,                 Continue:Enable-SSH | Abort:Fail
-Enable-SSH,                   Continue:TPM-Check | Abort:Fail
+Set-password,                 Continue:TPM-Check | Abort:Fail
 
-TPM-Check,                    Continue:Configure-VHDs | TpmBadSrk:TPM-BadSrk | TpmDisabled:TPM-Disabled | TpmInactive:TPM-Inactive | TpmOwned:TPM-Owned | TxtFail:TXT-Fail | Abort:Unexpected-failure
+TPM-Check,                    Continue:Enable-SSH | TpmBadSrk:TPM-BadSrk | TpmDisabled:TPM-Disabled | TpmInactive:TPM-Inactive | TpmOwned:TPM-Owned | TxtFail:TXT-Fail | Abort:Unexpected-failure
 TPM-BadSrk,                   Continue:TPM-RUSure | Abort:Fail
 TPM-Disabled,                 Continue:TPM-RUSure | Abort:Fail
 TPM-Inactive,                 Continue:TPM-RUSure | Abort:Fail
@@ -20,6 +19,7 @@ TPM-Owned,                    Continue:TPM-RUSure | Abort:Fail
 TXT-Fail,                     Continue:TPM-RUSure | Abort:Fail
 TPM-RUSure,                   Continue:Set-password | Abort:Fail
 
+Enable-SSH,                   Continue:Configure-VHDs | Abort:Fail
 Configure-VHDs,               Continue:Configure-VMs | Abort:Fail
 Configure-VMs,                Network:Ensure-network-up{vm} | NoNetwork:Ready-to-install | Abort:Fail
 
