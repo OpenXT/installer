@@ -1,0 +1,50 @@
+#!/bin/ash
+#
+# Copyright (c) 2013 Citrix Systems, Inc.
+# Copyright (c) 2017 Jason Andryuk
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+. ${SCRIPT_DIR}/functions
+. ${MEASURED_LAUNCH_CONF}
+
+not_previous || exit ${Previous}
+
+if [ "${MEASURE_LAUNCH}" = "true" ]; then
+    if ! interactive; then
+        echo "ERROR: answerfile specifies that ${PRODUCT_BRAND} Measured" \
+             "Launch should be configured but TPM is in a time-out period" \
+             "defending against dictionary attacks.  This can occur from" \
+             "trying incorrect owner passwords.  Please wait and try again" \
+             "in a few minutes.  If you do not know your TPM Owner Password," \
+             "reset the TPM in the BIOS." >&2
+        exit ${Abort}
+    else
+        dialog --colors --yes-label "Reboot" --no-label "Continue" --yesno "
+Your TPM is in a time-out period defending against dictionary attacks.  This can occur from trying incorrect owner passwords.
+
+If you know the owner password, run \`tpm_resetdalock\` from the console (Alt-F3) to clear the dictionary attack protection.  Otherwise you'll have to wait a few minutes to try another guess.  If you do not know your TPM owner password, reset the TPM in the BIOS.
+
+You may \ZbReboot\ZB the system now to clear your TPM or \ZbContinue\ZB to wait and try again in a few minutes." 19 50
+        case $? in
+            1) exit ${Continue} ;;
+            255) exit ${Previous} ;;
+            *) exit ${Abort} ;;
+        esac
+    fi
+else
+    exit ${Continue}
+fi
