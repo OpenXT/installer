@@ -26,7 +26,8 @@ if [ "${MEASURE_LAUNCH}" = "true" ]; then
     if ! interactive; then
         echo "ERROR: answerfile specifies that ${PRODUCT_BRAND} Measured" \
              "Launch should be configured but the system's TPM is already" \
-             "owned. ${PRODUCT_BRAND} Measured Launch requires sole" \
+             "owned and you have not provided the owner password." \
+             "${PRODUCT_BRAND} Measured Launch requires sole" \
              "ownership of the TPM. Please clear the TPM through your" \
              "system BIOS administrative interface." >&2
         exit ${Abort}
@@ -35,7 +36,8 @@ if [ "${MEASURE_LAUNCH}" = "true" ]; then
  The TPM in your platform is already owned.
 
  ${PRODUCT_BRAND} Measured Launch requires sole
- ownership of the platform TPM.
+ ownership of the platform TPM and you have
+ not provided the owner password.
 
  You may either \ZbReboot\ZB and clear your
  TPM in the BIOS configuration or \ZbContinue\ZB
