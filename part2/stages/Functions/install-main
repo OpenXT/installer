@@ -195,7 +195,7 @@ install_dom0()
     PERCENT=$((PERCENT + 5))
     # Let installer see message before pass prompt
     sleep 1
-    local RECOVERY_KEY=$(gen_recovery_key ${DOM0_MOUNT})
+    local RECOVERY_KEY=$(get_recovery_key)
 
     mixedgauge "Formatting storage..." ${PERCENT}
     PERCENT=$((PERCENT + 5))
