@@ -128,6 +128,9 @@ case $? in
     2)  echo "can't tell if TPM has an EK?" >&2
         exit ${Abort}
         ;;
+    3)  echo "TPM in dictionary attack timeout" >& 2
+        exit ${TpmTimeout}
+        ;;
     *)  echo "tpm_has_ek: This shouldn't happen!" >&2
         exit ${Abort}
         ;;
@@ -163,6 +166,9 @@ case $? in
     2)  echo "can't tell if owner password is WKS" >&2
         exit ${Abort}
         ;;
+    3)  echo "TPM in dictionary attack timeout" >& 2
+        exit ${TpmTimeout}
+        ;;
     *)  echo "tpm_is_owner_wks: This shouldn't happen!" >&2
         exit ${Abort}
         ;;
@@ -176,6 +182,9 @@ esac
             ;;
         2)  echo "can't tell if we know owner password" >&2
             exit ${Abort}
+            ;;
+        3)  echo "TPM in dictionary attack timeout" >& 2
+            exit ${TpmTimeout}
             ;;
         *)  echo "tpm_check_owner_password: This shouldn't happen!" >&2
             exit ${Abort}
@@ -195,6 +204,9 @@ update_gauge "${CHECK_MSG}" ${TPM_GAUGE}
             ;;
         2)  echo "can't determine if SRK is WKS" >&2
             exit ${Abort}
+            ;;
+        3)  echo "TPM in dictionary attack timeout" >& 2
+            exit ${TpmTimeout}
             ;;
         *) ;;
     esac
