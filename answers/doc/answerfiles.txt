@@ -215,6 +215,50 @@ The following command can be used to generate an encrypted password:
     $ openssl passwd -1
 
 ######################################################################
+<recovery-password>RecoveryPassword</recovery-password>
+
+This is a plaintext password used as the system recovery password for
+unlocking the config partition.  The installer will try and sanitize
+this password out of the answerfile.
+
+If you are concerned about plaintext passwords in your answerfile, add a
+snippet like:
+<preinstall>
+#!/bin/sh
+source /usr/lib/openxt/key-functions
+setup_keystore
+cd \${KEYMNT}
+wget -q -O - http://\$http_server/keys.tar.gz | tar -zxf -
+store_recovery_key recovery_password
+rm recovery_password
+</preinstall>
+to your answer file to populate the Recovery password where keys.tar.gz
+contains the recovery_password file.
+
+######################################################################
+<tpm-owner-password>TPMOwnerPassword</tpm-owner-password>
+
+This is a plaintext password used as the TPM Owner password for TPM 1.2
+systems and as the Owner, Endorsement and Lockout passwords for TPM 2.0.
+The installer will try and sanitize this password out of the answerfile.
+
+If you are concerned about plaintext passwords in your answerfile, add a
+snippet like:
+<preinstall>
+#!/bin/sh
+source /usr/lib/openxt/key-functions
+setup_keystore
+cd \${KEYMNT}
+wget -q -O - http://\$http_server/keys.tar.gz | tar -zxf -
+store_recovery_key recovery_password
+store_own_key tpm_owner_password
+rm recovery_password tpm_owner_password
+</preinstall>
+to your answer file to populate the TPM Owner password and Recovery
+password where keys.tar.gz contains files recovery_password and
+tpm_owner_password.
+
+######################################################################
 <enable-ssh>true</enable-ssh>
 <enable-ssh>false</enable-ssh>
 

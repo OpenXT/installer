@@ -3,6 +3,7 @@
 <source type="local"></source>
 <mode>fresh</mode>
 <password type="none"></password>
+<recovery-password>RecoveryPassword</recovery-password>
 <license-key></license-key>
 <skipready></skipready>
 <allow-dev-repo-cert>true</allow-dev-repo-cert>
