@@ -15,7 +15,7 @@ TPM-Check,                    Continue:Enable-SSH | TpmBadSrk:TPM-BadSrk | TpmDi
 TPM-BadSrk,                   Continue:TPM-RUSure | Abort:Fail
 TPM-Disabled,                 Continue:TPM-RUSure | Abort:Fail
 TPM-Inactive,                 Continue:TPM-RUSure | Abort:Fail
-TPM-Owned,                    Continue:TPM-RUSure | Abort:Fail
+TPM-Owned,                    Continue:TPM-RUSure | Retry:Set-password | Abort:Fail
 TXT-Fail,                     Continue:TPM-RUSure | Abort:Fail
 TPM-RUSure,                   Continue:Set-password | Abort:Fail
 
