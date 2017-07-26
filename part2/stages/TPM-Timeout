@@ -40,7 +40,10 @@ If you know the owner password, run \`tpm_resetdalock\` from the console (Alt-F3
 
 You may \ZbReboot\ZB the system now to clear your TPM or \ZbContinue\ZB to wait and try again in a few minutes." 19 50
         case $? in
-            1) exit ${Continue} ;;
+            1) . /usr/lib/openxt/key-functions
+               remove_own_key
+               exit ${Continue}
+               ;;
             255) exit ${Previous} ;;
             *) exit ${Abort} ;;
         esac
