@@ -342,3 +342,31 @@ get_partition_node()
 
     return 0
 }
+
+#-----------------------------------------------------------
+# Usage: version_ge <v1> <v2>
+# Parse and compare versions formatted as "major.minor.micro".
+# Return 0 if v1 >= v2, else return 1.
+version_ge() {
+    local v1=$1
+    local v2=$2
+
+    local v1_maj="${v1%%.*}"
+    local __v1_min="${v1#*.}"
+    local v1_min="${__v1_min%%.*}"
+    local v1_mic="${v1##*.}"
+
+    local v2_maj="${v2%%.*}"
+    local __v2_min="${v2#*.}"
+    local v2_min="${__v2_min%%.*}"
+    local v2_mic="${v2##*.}"
+
+    if [ $(($v1_maj - $v2_maj)) -ne 0 ]; then
+        [ $v1_maj -ge $v2_maj ]
+    elif [ $(($v1_min - $v2_min)) -ne 0 ]; then
+        [ $v1_min -ge $v2_min ]
+    else
+        [ $v1_mic -ge $v2_mic ]
+    fi
+}
+

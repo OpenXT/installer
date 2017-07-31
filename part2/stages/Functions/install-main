@@ -17,27 +17,35 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #
 
+create_lv() {
+    local vg=$1
+    local name=$2
+    local opts=${@:3}
+    local dfl_opts="--zero y"
+
+    local version="$(lvcreate --version | sed -ne 's/\s\+LVM version:\s\+\([^0-9.]*\([0-9.]*\)\).*/\1/p')"
+    if version_ge ${version} "2.02.105"; then
+        dfl_opts="${dfl_opts} --wipesignatures y --yes"
+    fi
+
+    lvcreate ${dfl_opts} --name ${name} ${opts} ${vg}
+}
+
 mk_xc_lvm()
 {
     local PARTITION_DEV="$1"
+
     do_cmd pvcreate -ff -y "${PARTITION_DEV}" || return 1
     do_cmd vgcreate xenclient "${PARTITION_DEV}" || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
-                    --name boot --size 12M /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
-                    --name config --size 12M /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
-                    --name root --size ${DOM0_ROOT_LV_SIZE} /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
-                    --name root.new --size ${DOM0_ROOT_LV_SIZE} /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
-                    --name swap --size 256M /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
-                    --name log --size 64M /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
-                    --name cores --size 64M /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
-                    --name storage -l +100%FREE /dev/xenclient || return 1
+    dm_cmd create_lv xenclient boot --size 12M || return 1
+    dm_cmd create_lv xenclient config --size 12M || return 1
+    dm_cmd create_lv xenclient root --size ${DOM0_ROOT_LV_SIZE} || return 1
+    dm_cmd create_lv xenclient root.new --size ${DOM0_ROOT_LV_SIZE} || return 1
+    dm_cmd create_lv xenclient swap --size 256M || return 1
+    dm_cmd create_lv xenclient log --size 64M || return 1
+    dm_cmd create_lv xenclient cores --size 64M || return 1
+    dm_cmd create_lv xenclient storage -l +100%FREE || return 1
+
     do_cmd lvresize -f /dev/xenclient/storage -L-1G || return 1
 
     do_cmd vgscan --mknodes || return 1
@@ -334,10 +342,9 @@ upgrade_dom0()
     DOM0_SIZE_BYTES=$(zcat ${DOM0_ROOTFS} | wc -c)
     DOM0_ROOT_LV_SIZE=$(((${DOM0_SIZE_BYTES} / 1048576) + 1))M
 
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
-                    --name `basename ${ROOT_DEV}.new` \
-                    --size ${DOM0_ROOT_LV_SIZE}  \
-                    `dirname ${ROOT_DEV}.new` >&2 || return 1
+    do_cmd create_lv \
+        `dirname ${ROOT_DEV}.new` `basename ${ROOT_DEV}.new` \
+        --size ${DOM0_ROOT_LV_SIZE} >&2 || return 1
     write_rootfs ${DOM0_ROOTFS} ${ROOTFS_TYPE} ${ROOT_DEV}.new >&2 || {
         do_cmd lvremove -f ${ROOT_DEV}.new >&2
         return 1
