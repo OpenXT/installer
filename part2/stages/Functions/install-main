@@ -20,23 +20,30 @@
 mk_xc_lvm()
 {
     local PARTITION_DEV="$1"
+    local LVM_VERSION="$(lvcreate --version | sed -ne 's/\s\+LVM version:\s\+\([^0-9.]*\([0-9.]*\)\).*/\1/p')"
+    local LVM_OPTS="--zero y --yes"
+
+    if version_ge ${LVM_VERSION} "2.02.105"; then
+        LVM_OPTS="${LVM_OPTS} --wipesignatures y"
+    fi
+
     do_cmd pvcreate -ff -y "${PARTITION_DEV}" || return 1
     do_cmd vgcreate xenclient "${PARTITION_DEV}" || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
+    do_cmd lvcreate ${LVM_OPTS} \
                     --name boot --size 12M /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
+    do_cmd lvcreate ${LVM_OPTS} \
                     --name config --size 12M /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
+    do_cmd lvcreate ${LVM_OPTS} \
                     --name root --size ${DOM0_ROOT_LV_SIZE} /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
+    do_cmd lvcreate ${LVM_OPTS} \
                     --name root.new --size ${DOM0_ROOT_LV_SIZE} /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
+    do_cmd lvcreate ${LVM_OPTS} \
                     --name swap --size 256M /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
+    do_cmd lvcreate ${LVM_OPTS} \
                     --name log --size 64M /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
+    do_cmd lvcreate ${LVM_OPTS} \
                     --name cores --size 64M /dev/xenclient || return 1
-    do_cmd lvcreate --wipesignatures y --zero y --yes \
+    do_cmd lvcreate ${LVM_OPTS} \
                     --name storage -l +100%FREE /dev/xenclient || return 1
     do_cmd lvresize -f /dev/xenclient/storage -L-1G || return 1
 
