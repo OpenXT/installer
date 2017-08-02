@@ -10,6 +10,7 @@ touch /tmp/preinstall.touch
 <network-interface mode="dhcp"></network-interface>
 <keyboard>us</keyboard>
 <password>*</password>
+<recovery-password>RecoveryPassword</recovery-password>
 <enable-ssh>false</enable-ssh>
 <license-key>you-can-call-me-al</license-key>
 <postinstall>#!/bin/ash

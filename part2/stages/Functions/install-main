@@ -195,7 +195,7 @@ install_dom0()
     PERCENT=$((PERCENT + 5))
     # Let installer see message before pass prompt
     sleep 1
-    local RECOVERY_KEY=$(gen_recovery_key ${DOM0_MOUNT})
+    local RECOVERY_KEY=$(get_recovery_key)
 
     mixedgauge "Formatting storage..." ${PERCENT}
     PERCENT=$((PERCENT + 5))
@@ -392,8 +392,7 @@ commit_dom0()
     if [ "${INSTALL_MODE}" = "upgrade" ]; then
         echo "commit_dom0: we're doing an upgrade" >&2
         mount_config || return 1
-        is_mounted ${DOM0_MOUNT}/config
-        if [ $? -eq 1 ]; then
+        if is_mounted ${DOM0_MOUNT}/config ; then
             echo "commit_dom0: ${DOM0_MOUNT}/config is mounted" >&2
             echo "commit_dom0: touching rehash-vms" >&2
             touch ${DOM0_MOUNT}/config/rehash-vms
@@ -425,8 +424,8 @@ seal_system() {
                 do_umount ${DOM0_MOUNT}
                 return 1
             }
-            is_mounted ${DOM0_MOUNT}/config
-            if [ $? -eq 1 ]; then
+
+            if is_mounted ${DOM0_MOUNT}/config ; then
                 echo "seal_system: /config is mounted, forward sealing key" >&2
 
                 /etc/init.d/trousers stop
@@ -482,33 +481,33 @@ mount_dom0()
 mount_config()
 {
     # mount /config in the proper place if we can, bind it if already mounted
-    is_mounted /config
-    if [ $? -eq 1 ]; then
+    if is_mounted /config ; then
         echo "mount_config: /config mounted, binding to ${DOM0_MOUNT}/config" >&2
-        do_mount -o bind /config ${DOM0_MOUNT}/config      || return 1
+        do_mount -o bind /config ${DOM0_MOUNT}/config
+        return $?
     elif [ -e /dev/mapper/config ]; then
         echo "mount_config: config partition is already mapped, mounting" >&2
-        do_mount /dev/mapper/config ${DOM0_MOUNT}/config   || return 1
     elif [ ! "${EXISTING_MEASURED_STATE}" = "true" ]; then
         echo "mount_config: not sealed, not luksOpen-ed, using platform key to mount ..." >&2
         platform_unlock "/dev/xenclient/config" config >&2
         if [ $? -eq 0 ]; then
             echo "mount_config: config mapped successfully, mounting" >&2
-            do_mount /dev/mapper/config ${DOM0_MOUNT}/config || return 1
         else
             echo "mount_config: ERROR luksOpen-ing /dev/xenclient/config" >&2
+            return 1
         fi
     else # not already mounted, mapped and platform state is sealed
         recovery_unlock "/dev/xenclient/config" config "${DOM0_MOUNT}" >&2
         if [ $? -eq 0 ]; then
             echo "mount_config: config mapped successfully, mounting" >&2
-            do_mount /dev/mapper/config ${DOM0_MOUNT}/config || return 1
         else
             echo "mount_config: ERROR luksOpen-ing /dev/xenclient/config" >&2
+            return 1
         fi
     fi
 
-    return 0
+    # Return value of this command is return value for function
+    do_mount /dev/mapper/config ${DOM0_MOUNT}/config
 }
 
 install_bootloader_from_dom0fs()
@@ -903,17 +902,14 @@ mount_existing_log()
     return 0
 }
 
-# return 1 if there's something mounted on the provided path
-# else 0
+# return true (0) if there's something mounted on the provided path
+# else false (1)
 is_mounted()
 {
     local MOUNT_PT=$1
-    cat /proc/mounts | awk '{ print $2 }' | grep -q "^${MOUNT_PT}$"
-    if [ $? -eq 0 ]; then
-        return 1
-    else
-        return 0
-    fi
+    cat /proc/mounts | \
+      awk '{ print $2 }' | \
+      grep -q "^${MOUNT_PT}$" 1>/dev/null 2>&1
 }
 
 # take ownership of TPM if necessary
@@ -923,29 +919,18 @@ own_tpm()
         echo "TPM sate not active, canot own_tpm" >&2
         return 1
     fi
-    if [ "${TPM_OWNED}" = "true" ]; then
-        echo "TPM is owned, cannot own_tpm" >&2
-        return 1
-    fi
 
-    is_tpm_2_0
-    tpm2=$?
-    if [ "${tpm2}" -eq 0 ]; then
-        local own_key=$(get_own_key)
-        tpm_take_ownership  $(cat "${own_key}") "${TPM_EK}"
-    else
-        local own_key=$(gen_own_key)
+    local own_key=$(get_own_key)
+
+    if [ "${TPM_OWNED}" = "false" ]; then
         tpm_take_ownership  "${own_key}" "${TPM_EK}"
+        if [ $? -ne 0 ]; then
+            echo "taking tpm ownership failed" >&2
+            return 1
+        fi
     fi
 
-    if [ $? -ne 0 ]; then
-        echo "taking tpm ownership failed" >&2
-        [ -f "${own_key}" ] && rm "${own_key}"
-        return 1
-    fi
-    
     generate_policy "${own_key}"
 
-    [ -f "${own_key}" ] && rm "${own_key}"
     return 0
 }

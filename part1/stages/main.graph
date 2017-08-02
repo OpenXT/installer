@@ -2,7 +2,8 @@ Start,                        Continue:Initialise-state
 ErrorHandler,                 Continue:Fail
 
 Initialise-state,             Continue:Get-answerfile | Abort:Unexpected-failure
-Get-answerfile,               Continue:Pre-install-hook | Abort:Fail
+Get-answerfile,               Continue:Stash-passwords | Abort:Fail
+Stash-passwords,              Continue:Pre-install-hook | Abort:Fail
 Pre-install-hook,             Continue:Welcome | Abort:Fail
 
 Welcome,                      Continue:EULA | Abort:Fail
