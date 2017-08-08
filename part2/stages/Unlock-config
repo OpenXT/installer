@@ -1,0 +1,82 @@
+#!/bin/ash
+#
+# Copyright (C) 2017 Jason Andryuk
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+. ${SCRIPT_DIR}/functions
+. ${SCRIPT_DIR}/Functions/install-main
+. /usr/lib/openxt/key-functions
+
+not_previous || exit ${Previous}
+
+if ! keystore_ready; then
+    setup_keystore || exit ${Abort}
+fi
+
+# test_recovery_key needs the boot partition to check for the old XC scheme,
+# so we have to mount it.
+check_recovery_key() {
+    tmp_boot_mount=$( mktemp -d --tmpdir="${MOUNT_ROOT}" )
+
+    mount_existing_boot "${tmp_boot_mount}"
+    test_recovery_key "/dev/xenclient/config" config "${tmp_boot_mount}" \
+        "$( get_recovery_key )"
+    ret=$?
+
+    do_umount "${tmp_boot_mount}" && rmdir ${tmp_boot_mount}
+
+    return $ret
+}
+
+# OTA Upgrade doesn't need a key
+is_mounted /config && exit ${Continue}
+
+if have_recovery_key ; then
+    check_recovery_key && exit ${Continue}
+fi
+
+if ! interactive; then
+    echo "ERROR: Cannot unlock config partition." >2
+    exit ${Abort}
+fi
+
+while true; do
+    try=1
+    while [ $try -le 3 ]; do
+        prompt_recovery_password $try "Please enter recovery password to unlock the config partition for ${PRODUCT_BRAND} upgrade."
+        case $? in
+            0) ;;
+            1) exit ${Previous} ;;
+            255)    exit ${Previous} ;;
+            *) exit ${Abort} ;;
+        esac
+
+        check_recovery_key && exit ${Continue}
+
+        try=$(( try + 1 ))
+    done
+
+    dialog --colors --yes-label "Retry" --no-label "Reselect" --yesno "
+You failed to unlock the config partition.  Upgrade cannot continue without unlocking the partition.
+
+You may \ZbRetry\ZB entering passwords to unlocking the config partition partition again.  Or \ZbReselect\ZB to go back and select a fresh installation." 12 50
+    case $? in
+        0) continue ;;
+        1) exit ${Reselect} ;;
+        255) exit ${Previous} ;;
+        *) exit ${Abort} ;;
+    esac
+done

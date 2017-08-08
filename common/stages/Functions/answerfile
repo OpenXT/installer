@@ -34,7 +34,21 @@ read_xml_tag()
 {
     FILE="$1"
     TAG="$2"
-    sed -ne 's/^.*<'"${TAG}"'\(\s\+[^>]*\)*\s*>\([^<]*\)<\/'"${TAG}"'>.*$/\2/p' <${FILE}
+    sed -ne "s|^.*<${TAG}\(\s\+[^>]*\)*>\([^<]*\)</${TAG}>.*$|\2|p" <${FILE}
+}
+
+# Replace the value between a tag set with the text "SANITIZED".
+# The opening tag may have attributes and whitespace.
+# Changes:
+#  ...<tag foo=bar baz=goo  >Value</tag>...
+# To:
+#  ...<tag foo=bar baz=goo  >SANITIZED</tag>...
+# This assumes the tag is on a single line in the file.
+sanitize_xml_tag()
+{
+    FILE="$1"
+    TAG="$2"
+    sed -i -e "s|\(<${TAG}\(\s\+[^>]*\)*>\)[^<]*\(</${TAG}>\)|\1SANITIZED\3|" ${FILE}
 }
 
 has_xml_tag()

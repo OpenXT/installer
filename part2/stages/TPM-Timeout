@@ -1,6 +1,7 @@
 #!/bin/ash
 #
 # Copyright (c) 2013 Citrix Systems, Inc.
+# Copyright (c) 2017 Jason Andryuk
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,26 +26,23 @@ not_previous || exit ${Previous}
 if [ "${MEASURE_LAUNCH}" = "true" ]; then
     if ! interactive; then
         echo "ERROR: answerfile specifies that ${PRODUCT_BRAND} Measured" \
-             "Launch should be configured but the system's TPM is already" \
-             "owned and you have not provided the owner password." \
-             "${PRODUCT_BRAND} Measured Launch requires sole" \
-             "ownership of the TPM. Please clear the TPM through your" \
-             "system BIOS administrative interface." >&2
+             "Launch should be configured but TPM is in a time-out period" \
+             "defending against dictionary attacks.  This can occur from" \
+             "trying incorrect owner passwords.  Please wait and try again" \
+             "in a few minutes.  If you do not know your TPM Owner Password," \
+             "reset the TPM in the BIOS." >&2
         exit ${Abort}
     else
-        dialog --colors --extra-button --extra-label "Retry" \
-          --ok-label "Reboot" --cancel-label "Continue" --yesno "
- The TPM in your platform is already owned.
+        dialog --colors --yes-label "Reboot" --no-label "Continue" --yesno "
+Your TPM is in a time-out period defending against dictionary attacks.  This can occur from trying incorrect owner passwords.
 
- ${PRODUCT_BRAND} Measured Launch requires sole ownership of the platform TPM and you have not provided the owner password.
+If you know the owner password, run \`tpm_resetdalock\` from the console (Alt-F3) to clear the dictionary attack protection.  Otherwise you'll have to wait a few minutes to try another guess.  If you do not know your TPM owner password, reset the TPM in the BIOS.
 
- You may either \ZbReboot\ZB and clear your TPM in the BIOS configuration, \ZbRetry\ZB a new TPM owner password or \ZbContinue\ZB with ${PRODUCT_BRAND} Measured Launch disabled." 14 49
+You may \ZbReboot\ZB the system now to clear your TPM or \ZbContinue\ZB to wait and try again in a few minutes." 19 50
         case $? in
-            1) exit ${Continue} ;;
-            3) # User pressed Retry
-               . /usr/lib/openxt/key-functions
+            1) . /usr/lib/openxt/key-functions
                remove_own_key
-               exit ${Retry}
+               exit ${Continue}
                ;;
             255) exit ${Previous} ;;
             *) exit ${Abort} ;;
