@@ -18,13 +18,8 @@
 
 . ${SCRIPT_DIR}/functions
 . ${SCRIPT_DIR}/Functions/install-main
-. /usr/lib/openxt/key-functions
 
 not_previous || exit ${Previous}
-
-if ! keystore_ready; then
-    setup_keystore || exit ${Abort}
-fi
 
 # test_recovery_key needs the boot partition to check for the old XC scheme,
 # so we have to mount it.
@@ -42,7 +37,21 @@ check_recovery_key() {
 }
 
 # OTA Upgrade doesn't need a key
+# OTA Upgrade from 6 -> 7 should ${Continue} here.
+#   OpenXT 6 did not have the key-management and measured-launch refactoring,
+#   hence no /usr/lib/openxt/key-functions. If config happens to not be mounted
+#   at this point, abort as this upgrade path is not supported.
 is_mounted /config && exit ${Continue}
+
+if [ -e /usr/lib/openxt/key-functions ]; then
+    . /usr/lib/openxt/key-functions
+else
+    exit ${Abort}
+fi
+
+if ! keystore_ready; then
+    setup_keystore || exit ${Abort}
+fi
 
 if have_recovery_key ; then
     check_recovery_key && exit ${Continue}
