@@ -480,7 +480,7 @@ mount_dom0()
     mount -t securityfs | grep -q -s 'securityfs' >&2
     [ $? -eq 0 ] && ( do_mount -o bind /sys/kernel/security ${DOM0_MOUNT}/sys/kernel/security || return 1 )
     mount -t selinuxfs | grep -q -s 'selinuxfs' >&2
-    [ $? -eq 0 ] && ( do_mount -o bind /selinux ${DOM0_MOUNT}/selinux || return 1 )
+    [ $? -eq 0 ] && ( do_mount -o bind /sys/fs/selinux ${DOM0_MOUNT}/sys/fs/selinux || return 1 )
     # FIXME - revisit this for XC-5161:
     do_mount /dev/xenclient/boot ${DOM0_MOUNT}/boot/system || return 1
     do_mount -o user_xattr /dev/xenclient/storage ${DOM0_MOUNT}/storage  || return 1
