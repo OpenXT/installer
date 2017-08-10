@@ -370,3 +370,14 @@ version_ge() {
     fi
 }
 
+#-----------------------------------------------------------
+# Usage: selinux_enforced
+# Return 0 if selinux is enforced, else return 1.
+selinux_enforced() {
+    if [ -f "/sys/fs/selinux/enforce" ]; then
+        state=`cat /sys/fs/selinux/enforce`
+        [ "$state" = "1" ]
+    else
+        return 1
+    fi
+}
