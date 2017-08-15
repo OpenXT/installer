@@ -70,7 +70,9 @@ log_tpm_attrs() {
 }
 
 quirk_callback () {
-    interactive && dialog --ok-label Continue --msgbox "$1" 0 0
+    if interactive && [ -n "$1" ]; then
+        dialog --ok-label Continue --msgbox "$1" 0 0
+    fi
 }
 
 quirk_fatal_callback () {
