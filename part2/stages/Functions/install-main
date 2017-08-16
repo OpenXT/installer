@@ -468,24 +468,25 @@ mount_dom0()
 {
     local ROOT="$1"
     local tmpfsopts="size=32M"
-
-    do_mount -o ro ${ROOT} ${DOM0_MOUNT}                   || return 1
-    do_mount -o bind /proc ${DOM0_MOUNT}/proc              || return 1
-    do_mount -o bind /sys ${DOM0_MOUNT}/sys                || return 1
-    do_mount -o bind /dev ${DOM0_MOUNT}/dev                || return 1
-    if [ -x "$(which getenforce)" ] && getenforce | grep -qv '^Disabled$'; then
+    if selinux_enforced ; then
         tmpfsopts="$tmpfsopts,rootcontext=system_u:object_r:tmp_t:s0"
     fi
-    do_mount -t tmpfs -o $tmpfsopts tmpfs ${DOM0_MOUNT}/tmp  || return 1
-    mount -t securityfs | grep -q -s 'securityfs' >&2
-    [ $? -eq 0 ] && ( do_mount -o bind /sys/kernel/security ${DOM0_MOUNT}/sys/kernel/security || return 1 )
-    mount -t selinuxfs | grep -q -s 'selinuxfs' >&2
-    [ $? -eq 0 ] && ( do_mount -o bind /selinux ${DOM0_MOUNT}/selinux || return 1 )
-    # FIXME - revisit this for XC-5161:
-    do_mount /dev/xenclient/boot ${DOM0_MOUNT}/boot/system || return 1
-    do_mount -o user_xattr /dev/xenclient/storage ${DOM0_MOUNT}/storage  || return 1
 
-    return 0
+    do_mount -o ro ${ROOT} ${DOM0_MOUNT} &&
+    do_mount -o bind /proc ${DOM0_MOUNT}/proc &&
+    do_mount -o bind /sys ${DOM0_MOUNT}/sys &&
+    do_mount -o bind /dev ${DOM0_MOUNT}/dev &&
+    do_mount -t tmpfs -o $tmpfsopts tmpfs ${DOM0_MOUNT}/tmp &&
+    do_mount /dev/xenclient/boot ${DOM0_MOUNT}/boot/system &&
+    do_mount -o user_xattr /dev/xenclient/storage ${DOM0_MOUNT}/storage &&
+    if grep -qs "^securityfs " /proc/mounts ; then
+        do_mount -o bind /sys/kernel/security ${DOM0_MOUNT}/sys/kernel/security ||
+            return 1
+    fi &&
+    if grep -qs "^selinuxfs " /proc/mounts ; then
+        do_mount -o bind /sys/fs/selinux ${DOM0_MOUNT}/sys/fs/selinux ||
+            return 1
+    fi
 }
 
 mount_config()
