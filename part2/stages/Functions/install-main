@@ -216,7 +216,7 @@ install_dom0()
     #
     # config
     #
-    cryptsetup -q -i 1 --cipher=aes-xts-plain64 luksFormat ${config_lv} ${RECOVERY_KEY} >&2 || {
+    cryptsetup -q -i 600 --cipher=aes-xts-plain64 luksFormat ${config_lv} ${RECOVERY_KEY} >&2 || {
         rm -f ${RECOVERY_KEY}
         set +x
         return 1
