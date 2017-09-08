@@ -567,7 +567,7 @@ install_uivm()
         ln -s ${UIVM_GCONF_VHD}.new /tmp/${VHD_FILENAME}
         do_cmd vhd-util key -n /tmp/${VHD_FILENAME} -k ${UIVM_GCONF_VHD_KEY} -s
         local KEY_FOLDER=`dirname ${UIVM_GCONF_VHD_KEY}`
-        local UIVM_GCONF_DEV=`TAPDISK2_CRYPTO_KEYDIR=${KEY_FOLDER} tap-ctl create -a "vhd:/tmp/${VHD_FILENAME}"`
+        local UIVM_GCONF_DEV=`TAPDISK3_CRYPTO_KEYDIR=${KEY_FOLDER} tap-ctl create -a "vhd:/tmp/${VHD_FILENAME}"`
         if ! tap-ctl list | grep -q ${VHD_FILENAME}; then
             tap-ctl destroy -d ${UIVM_GCONF_DEV} >&2
             rm -f ${UIVM_GCONF_VHD}.new >&2
