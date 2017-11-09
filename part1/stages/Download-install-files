@@ -173,7 +173,7 @@ exit_bad_transfer()
 empty_download_dir || exit ${Abort}
 
 case ${NETWORK_PROTOCOL} in
-http|ftp)
+http|https|ftp)
     do_wget_transfer "${NETWORK_REPO}" || exit_bad_transfer
     ;;
 nfs)
