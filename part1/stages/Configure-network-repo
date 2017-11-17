@@ -34,13 +34,16 @@ validate_repo_address()
         http)
             TEST="$(echo ${ADDR} | sed -ne '/^http:\/\/.*$/p')"
         ;;
+        https)
+            TEST="$(echo ${ADDR} | sed -ne '/^https:\/\/.*$/p')"
+        ;;
         ftp)
             TEST="$(echo ${ADDR} | sed -ne '/^ftp:\/\/.*$/p')"
         ;;
         nfs)
             # Ensure that there is no "http", "ftp" or "nfs" prefix.
             # (nfs just specifies mount arg, eg. "12.34.5.6:/foo/bar")
-            TEST=$(echo "${ADDR}" | sed -e '/^\(ftp\|http\|nfs\):/d' -ne '/^[^:]\+:[^:]*$/p')
+            TEST=$(echo "${ADDR}" | sed -e '/^\(ftp\|http\|https\|nfs\):/d' -ne '/^[^:]\+:[^:]*$/p')
         ;;
         *)  # this shouldn't happen:
             return 1
@@ -88,12 +91,16 @@ get_default_string()
             DEFAULT_REPO="$(echo ${ADDR} | sed -ne '/^http:\/\//p')"
             [ ! -z "${DEFAULT_REPO}" ] || DEFAULT_REPO="http://foo.bar/baz"
         ;;
+        https)
+            DEFAULT_REPO="$(echo ${ADDR} | sed -ne '/^https:\/\//p')"
+            [ ! -z "${DEFAULT_REPO}" ] || DEFAULT_REPO="https://foo.bar/baz"
+        ;;
         ftp)
             DEFAULT_REPO="$(echo ${ADDR} | sed -ne '/^ftp:\/\//p')"
             [ ! -z "${DEFAULT_REPO}" ] || DEFAULT_REPO="ftp://foo.bar/baz"
         ;;
         nfs)
-            DEFAULT_REPO="$(echo ${ADDR} | sed -e '/^\(ftp\|http\):\/\//d')"
+            DEFAULT_REPO="$(echo ${ADDR} | sed -e '/^\(ftp\|http\|https\):\/\//d')"
             [ ! -z "${DEFAULT_REPO}" ] || DEFAULT_REPO="1.2.3.4:/foo/bar"
         ;;
     esac
@@ -129,7 +136,7 @@ parse_source_type()
     REPO="$2"
     SOURCE_TYPE=$(read_xml_attr "${ANSF}" "source" "type")
     case ${SOURCE_TYPE} in
-    url)    echo "${REPO}" | sed -ne 's/^\(http\|ftp\):.*$/\1/p'
+    url)    echo "${REPO}" | sed -ne 's/^\(http\|https\|ftp\):.*$/\1/p'
         ;;
     nfs)    echo "nfs"  
         ;;
