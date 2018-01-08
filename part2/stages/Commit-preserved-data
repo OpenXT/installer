@@ -31,6 +31,7 @@ done
 . "${INSTALL_MODE_CONF}"
 
 if [ "${INSTALL_MODE}" = "fresh" ] ; then
+    . /usr/lib/openxt/key-functions
     . ${SCRIPT_DIR}/Functions/install-main
 
     mount_config || exit ${Abort}

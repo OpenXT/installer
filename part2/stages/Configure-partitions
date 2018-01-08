@@ -32,18 +32,18 @@ scan_partitions()
     PRIMARY_PARTITIONS=
     NUM_PARTITIONS=$(grep -c "${TARGET_DISK}[0-9]" /proc/partitions)
 
-    # We don't want to list the first partition in our primary partitions as it
-    # is reserved for our BIOS Boot Partition
-    N=2
+    # We don't want to list the first 2 partitions in our primary partitions as it
+    # is reserved for our ESP and BIOS Boot Partition
+    N=3
     while [ $N -lt $((NUM_PARTITIONS+1)) ] ; do
         PRIMARY_PARTITIONS="${PRIMARY_PARTITIONS} ${TARGET_DISK}/${N}"
         N=$((N+1))
     done
 
     # If we can't find any existing partitions, then the only one
-    # we care about is partition #2, our first real partition
+    # we care about is partition #3, our first real partition
     if [ -z ${PRIMARY_PARTITIONS} ] ; then
-        PRIMARY_PARTITIONS="${TARGET_DISK}/2"
+        PRIMARY_PARTITIONS="${TARGET_DISK}/3"
     fi
 
     EXISTING_PARTITIONS=
@@ -377,6 +377,9 @@ partition_mode_is_unique()
         use-free-space)
             ;;
 
+        erase-entire-disk)
+            ;;
+
         erase-non-oem)
             # Check if equivalent to "erase-entire-disk".
             if [ -z "${OEM_PARTITIONS}" ] ; then
@@ -394,23 +397,6 @@ partition_mode_is_unique()
             if [ -z "${XC_PARTITION}" -a \
                  "${HAVE_UNUSED_PARTITION}" = "true" -a \
                  "${HAVE_FREE_SPACE}" = "true" ] ; then
-                return 1
-            fi
-            ;;
-
-        erase-entire-disk)
-            # Check if equivalent to "overwrite".
-            if [ "${XC_PARTITION}" -a \
-                 -z "${OEM_PARTITIONS}" -a \
-                 -z "${OTHER_PARTITIONS}" -a \
-                 "${HAVE_FREE_SPACE}" != "true" ] ; then
-                return 1
-            fi
-
-            # Check if equivalent to "use-free-space".
-            if [ -z "${XC_PARTITION}" -a \
-                 -z "${OEM_PARTITIONS}" -a \
-                 -z "${OTHER_PARTITIONS}" ] ; then
                 return 1
             fi
             ;;

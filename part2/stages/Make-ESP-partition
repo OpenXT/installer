@@ -22,33 +22,41 @@
 . ${PARTITION_CONF}
 . ${SCRIPT_DIR}/Functions/install-main
 
-# GRUB Stage 1.5 lives in the BIOS Boot Partition
-# GRUB2 will automatically find this partition when grub is installed
-create_bios_boot_partition()
+create_efi_system_partition()
 {
     local PARTITION="${XC_PARTITION}"
     local DISK=$(get_partition_disk "${PARTITION}")
     local DISK_DEV="/dev/${DISK}"
 
-    local BBP_PARTNUM="2"
-    local BBP_SIZE="+1M"  # 1 MiB
-    local BBP_TYPE="EF02" # BIOS Boot Partition Typecode
+    local EFI_SYSTEM_PARTITION_GUID="C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+    local ESP=$(sfdisk -d ${DISK_DEV} | grep "type=${EFI_SYSTEM_PARTITION_GUID}" | awk '{ print $1 }')
+    local ESP_PARTNUM="1"
+    local ESP_SIZE="+100M"  # 1 MiB
+    local ESP_TYPE="EF00" # EFI System Partition Typecode
 
-	if do_cmd sgdisk -p "${DISK_DEV}" | grep -i ${BBP_TYPE} >&2 ; then
-		echo "BBP already exists, continue." >&2
-		return 0
-	fi
+    if [ "${ESP}" != "" ]; then
+        echo "ESP already exists, continue." >&2
+        return 0
+    fi
 
-	echo "No BBP detected, attempting to create a BBP." >&2
-    # Create the BBP
-    if ! do_cmd sgdisk -g -n ${BBP_PARTNUM}::${BBP_SIZE} -t ${BBP_PARTNUM}:${BBP_TYPE} "${DISK_DEV}" >&2 ; then
-        echo "ERROR: Could not create BIOS Boot Partition." >&2
+    echo "No ESP detected, attempting to create a ESP." >&2
+
+    # Create the ESP
+    if ! do_cmd sgdisk -g -n ${ESP_PARTNUM}::${ESP_SIZE} -t ${ESP_PARTNUM}:${ESP_TYPE} "${DISK_DEV}" >&2 ; then
+        echo "ERROR: Could not create EFI System Partition." >&2
+        return 1
+    fi
+
+    ESP=$(sfdisk -d ${DISK_DEV} | grep "type=${EFI_SYSTEM_PARTITION_GUID}" | awk '{ print $1 }')
+
+    if ! do_cmd mkfs.vfat -F 32 "${ESP}" >&2 ; then
+        echo "ERROR: Could not format ESP at '${ESP}' as FAT32" >&2
         return 1
     fi
 
     return 0
 }
 
-create_bios_boot_partition || exit ${Abort}
+create_efi_system_partition || exit ${Abort}
 
 exit ${Continue}

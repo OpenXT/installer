@@ -34,6 +34,8 @@ MLE_FUNC=/usr/lib/openxt/ml-functions
 [ ! -r ${TPM_FUNC} ] || . ${TPM_FUNC}
 [ ! -r ${MLE_FUNC} ] || . ${MLE_FUNC}
 [ ! -r ${MEASURED_LAUNCH_CONF} ] || . ${MEASURED_LAUNCH_CONF}
+[ ! -r ${DISK_CONF} ] || . ${DISK_CONF}
+[ ! -r ${KEY_FUNC} ] || . ${KEY_FUNC}
 
 if [ -z "${PACKAGES_DIR}" ] ; then
     echo "ERROR: PACKAGES_DIR not set" >&2
