@@ -18,7 +18,7 @@
 #
 
 create_lv() {
-    local dfl_opts="--zero y"
+    local dfl_opts="--zero n"
     local vg=$1
     local name=$2
     shift 2
@@ -26,7 +26,7 @@ create_lv() {
 
     local version="$(lvcreate --version | sed -ne 's/\s\+LVM version:\s\+\([^0-9.]*\([0-9.]*\)\).*/\1/p')"
     if version_ge ${version} "2.02.105"; then
-        dfl_opts="${dfl_opts} --wipesignatures y --yes"
+        dfl_opts="${dfl_opts} --wipesignatures n --yes"
     fi
 
     lvcreate ${dfl_opts} --name ${name} ${opts} ${vg}
