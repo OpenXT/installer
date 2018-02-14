@@ -27,14 +27,24 @@
 scan_partitions()
 {
     echo "Existing partition layout:" >&2
-    fdisk -ul "/dev/${TARGET_DISK}" >&2
+    gdisk -l "/dev/${TARGET_DISK}" >&2
 
     PRIMARY_PARTITIONS=
+    NUM_PARTITIONS=$(grep -c "${TARGET_DISK}[0-9]" /proc/partitions)
 
-    local N
-    for N in 1 2 3 4 ; do
+    # We don't want to list the first partition in our primary partitions as it
+    # is reserved for our BIOS Boot Partition
+    N=2
+    while [ $N -lt $((NUM_PARTITIONS+1)) ] ; do
         PRIMARY_PARTITIONS="${PRIMARY_PARTITIONS} ${TARGET_DISK}/${N}"
+        N=$((N+1))
     done
+
+    # If we can't find any existing partitions, then the only one
+    # we care about is partition #2, our first real partition
+    if [ -z ${PRIMARY_PARTITIONS} ] ; then
+        PRIMARY_PARTITIONS="${TARGET_DISK}/2"
+    fi
 
     EXISTING_PARTITIONS=
     XC_PARTITION=
@@ -123,11 +133,12 @@ get_partition_type()
     local PARTITION="$1"
     local DISK=$(get_partition_disk "${PARTITION}")
     local NODE=$(get_partition_node "${PARTITION}")
+    local PARTITION_NUM=$(get_partition_number "${PARTITION}")
 
-    fdisk -ul "/dev/${DISK}" |
-        grep "^/dev/${NODE} " |
-        sed 's/\*//' |
-        awk '{print $5}'
+    gdisk -l "/dev/${DISK}" |
+        sed 's/^\s\+//' |
+        grep "^${PARTITION_NUM} " |
+        awk '{print $6}'
 }
 
 get_vg_name()
@@ -145,42 +156,15 @@ disk_has_free_space()
     local PARTITION_NUM=$(get_partition_number "${PARTITION}")
     local NODE=$(get_partition_node "${PARTITION}")
 
-    # Try creating primary partition, but don't write changes to disk.
-    OUTPUT=$(fdisk -u "/dev/${DISK}" <<EOF 2>&1
-n
-p
-${PARTITION_NUM}
+    # Get number of free sectors.
+    NUM_SECTORS=$(gdisk -l /dev/${DISK} | grep "Total free space" | awk -v RS=[0-9]+ '{print RT+0;exit}')
 
-
-p
-q
-EOF
-    )
-
-    # Can partition be created?
-    echo "${OUTPUT}" | grep -q 'No free sectors available' && return 1
-
-    # Will partition be large enough?
-    FIRST_SECTOR=$(echo "${OUTPUT}" | sed 's/\*//' |
-                   grep "^/dev/${NODE}" |
-                   awk '{print $2}')
-
-    LAST_SECTOR=$(echo "${OUTPUT}" | sed 's/\*//' |
-                  grep "^/dev/${NODE}" |
-                  awk '{print $3}')
-
-    if [ -z "${FIRST_SECTOR}" -o -z "${LAST_SECTOR}" ] ; then
+    if [ -z "${NUM_SECTORS}" ] ; then
         echo "ERROR: Failed to check for free space on disk '${DISK}'" >&2
         exit 1
     fi
 
-    # Use bc since the values may be outside the range of a 32-bit integer.
-    NUM_SECTORS=$(echo "${LAST_SECTOR} - ${FIRST_SECTOR} + 1" | bc)
-
-    echo "Free space:" >&2
-    echo "    First sector: ${FIRST_SECTOR}" >&2
-    echo "    Last sector: ${LAST_SECTOR}" >&2
-    echo "    Number of sectors: ${NUM_SECTORS}" >&2
+    echo "Free space: ${NUM_SECTORS} sectors" >&2
 
     # Use bc since the values may be outside the range of a 32-bit integer.
     bc_greater_or_equal "${NUM_SECTORS}" "${MIN_PARTITION_SECTORS}"

@@ -48,31 +48,24 @@ create_xc_partition()
     local NODE=$(get_partition_node "${PARTITION}")
     local DISK_DEV="/dev/${DISK}"
     local PARTITION_DEV="/dev/${NODE}"
+    local BOOT_FLAG_BIT="2"
 
     if [ "${CREATE_XC_PARTITION}" = "true" ] ; then
         mixedgauge "Creating ${PRODUCT_BRAND} disk partition..." 10
-
-        do_cmd fdisk -u "${DISK_DEV}" <<EOF >&2
-n
-p
-${PARTITION_NUM}
-
-
-w
-EOF
-
+        do_cmd sgdisk -N ${PARTITION_NUM} -t ${PARTITION_NUM}:${XC_PARTITION_TYPE} "${DISK_DEV}" >&2
         realign_xc_partition
     fi
 
-    do_cmd sfdisk -f "${DISK_DEV}" -N "${PARTITION_NUM}" <<EOF >&2
-,,${XC_PARTITION_TYPE}
-EOF
-
     mixedgauge "Activating ${PRODUCT_BRAND} disk partition..." 15
-    do_cmd sfdisk -f -A "${DISK_DEV}" "${PARTITION_NUM}" >&2
-
+                                                                                                                                         
+    # Set the legacy boot flag attribute 
+    # This is likely not needed for a GPT-based disk, but a small portion of BIOS's will
+    # refuse to boot if it is not set
+    do_cmd sgdisk -A ${PARTITION_NUM}:set:${BOOT_FLAG_BIT} "${DISK_DEV}" >&2
+    # Also set the boot flag for the protective MBR, some BIOSes refuse to boot without that as well
+    do_cmd parted "${DISK_DEV}" disk_toggle pmbr_boot
     echo "New partition layout:" >&2
-    fdisk -lu "${DISK_DEV}" >&2
+    gdisk -l "${DISK_DEV}" >&2
 
     reread_partition_table "${DISK_DEV}" || return 1
 
@@ -91,7 +84,7 @@ reread_partition_table()
 
     while true ; do
         ATTEMPTS=$((ATTEMPTS + 1))
-        echo "w" | do_cmd fdisk "${DISK_DEV}" >&2 && break
+        echo -e "w\nY" | do_cmd gdisk "${DISK_DEV}" >&2 && break
 
         if [ "${ATTEMPTS}" -gt 30 ] ; then
             echo "ERROR: Unable to re-read partition table." >&2
@@ -117,8 +110,8 @@ realign_xc_partition()
     local DISK_DEV="/dev/${DISK}"
     local PARTITION_DEV="/dev/${NODE}"
 
-    FIRST_SECTOR=$(fdisk -lu "${DISK_DEV}" | sed 's/*//' |
-                   grep "^${PARTITION_DEV}" |
+    FIRST_SECTOR=$(gdisk -l "${DISK_DEV}" | sed 's/\s\+//' |
+                   grep "^${PARTITION_NUM} " |
                    awk '{print $2}')
 
     if [ -z "${FIRST_SECTOR}" ] ; then
@@ -134,12 +127,10 @@ realign_xc_partition()
         echo "Realigning ${PRODUCT_BRAND} partition: moving first sector" \
              "from {FIRST_SECTOR} to ${ALIGNED_FIRST_SECTOR}" >&2
 
-        do_cmd fdisk -u "${DISK_DEV}" <<EOF >&2
+        do_cmd gdisk "${DISK_DEV}" <<EOF >&2
 x
-b
-${PARTITION_NUM}
+l
 ${ALIGNED_FIRST_SECTOR}
-Y
 w
 EOF
     fi

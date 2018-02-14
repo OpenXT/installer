@@ -48,7 +48,7 @@ INSTALL_MODE_CONF="${INSTALL_DATA}/install-mode.conf"
 PARTITION_CONF="${INSTALL_DATA}/partition.conf"
 VHD_CONF="${INSTALL_DATA}/vhd.conf"
 VM_CONF="${INSTALL_DATA}/vm.conf"
-MBR_CONF="${INSTALL_DATA}/mbr.conf"
+GPT_CONF="${INSTALL_DATA}/gpt.conf"
 PRESERVED_DATA_CONF="${INSTALL_DATA}/preserved-data.conf"
 EXISTING_CONF="${INSTALL_DATA}/existing-install.conf"
 UIVM_GCONF_VHD_KEY="${INSTALL_DATA}/uivm-gconf,aes-xts-plain,256.key"
@@ -60,9 +60,6 @@ INSTALL_CONFIG_DIR="${INSTALL_ROOT}/config"
 
 DISK_MODEL_BLACKLIST="${INSTALL_CONFIG_DIR}/disk-model-blacklist.txt"
 MBR_WHITELIST="${INSTALL_CONFIG_DIR}/mbr-whitelist.txt"
-
-# Copy of the MBR to write to the target disk
-MBR_BINARY="${INSTALL_CONFIG_DIR}/mbr.bin"
 
 # Dialog configuration files
 DIALOG_WARN_RC="${INSTALL_CONFIG_DIR}/dialog-warn.rc"

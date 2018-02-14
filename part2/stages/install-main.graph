@@ -37,9 +37,10 @@ Install-upgrade,              Continue:Post-install-hook | Abort:Unexpected-fail
 
 Ready-to-install,             Continue:Remove-partitions | Abort:Fail
 Remove-partitions,            Continue:Configure-partitions | Abort:Fail
-Configure-partitions,         Continue:Configure-MBR | Abort:Fail
-Configure-MBR,                Continue:Install-hook | Abort:Fail
-Install-hook,                 Continue:Make-XC-partition | Abort:Fail
+Configure-partitions,         Continue:Configure-GPT | Abort:Fail
+Configure-GPT,                Continue:Install-hook | Abort:Fail
+Install-hook,                 Continue:Make-BBP-partition | Abort:Fail
+Make-BBP-partition,           Continue:Make-XC-partition | Abort:Fail
 Make-XC-partition,            Continue:Install-fresh | Abort:Fail
 Install-fresh,                Continue:Post-install-hook | Abort:Unexpected-failure
 

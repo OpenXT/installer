@@ -18,34 +18,37 @@
 #
 
 . ${SCRIPT_DIR}/functions
-. ${SCRIPT_DIR}/Functions/install-vhds
-. ${SCRIPT_DIR}/Functions/install-vms
 . ${DISK_CONF}
 . ${PARTITION_CONF}
-. ${GPT_CONF}
 . ${SCRIPT_DIR}/Functions/install-main
 
-TPM_FUNC=/usr/lib/tpm-scripts/tpm-functions
-MLE_FUNC=/usr/lib/openxt/ml-functions
-[ ! -r ${TPM_FUNC} ] || . ${TPM_FUNC}
-[ ! -r ${MLE_FUNC} ] || . ${MLE_FUNC}
-[ ! -r ${MEASURED_LAUNCH_CONF} ] || . ${MEASURED_LAUNCH_CONF}
+# GRUB Stage 1.5 lives in the BIOS Boot Partition
+# GRUB2 will automatically find this partition when grub is installed
+create_bios_boot_partition()
+{
+    local PARTITION="${XC_PARTITION}"
+    local DISK=$(get_partition_disk "${PARTITION}")
+    local DISK_DEV="/dev/${DISK}"
 
-if [ -z "${PACKAGES_DIR}" ] ; then
-    echo "ERROR: PACKAGES_DIR not set" >&2
-    exit ${Abort}
-fi
+    local BBP_PARTNUM="1"
+    local BBP_SIZE="+1M"  # 1 MiB
+    local BBP_TYPE="EF02" # BIOS Boot Partition Typecode
 
-mixedgauge "Installing ${PRODUCT_BRAND}." 0
-PERCENT=10
+	if do_cmd sgdisk -p "${DISK_DEV}" | grep -i ${BBP_TYPE} >&2 ; then
+		echo "BBP already exists, continue." >&2
+		return 0
+	fi
 
-# Installing dom0's rootfs mounts boot, config, root, log, storage
-apply_xc_packages "install" "${PACKAGES_DIR}" || exit ${Abort}
+	echo "No BBP detected, attempting to create a BBP." >&2
+    # Create the BBP
+    if ! do_cmd sgdisk -g -n ${BBP_PARTNUM}::${BBP_SIZE} -t ${BBP_PARTNUM}:${BBP_TYPE} "${DISK_DEV}" >&2 ; then
+        echo "ERROR: Could not create BIOS Boot Partition." >&2
+        return 1
+    fi
 
-install_vhds_and_vms || exit ${Abort}
+    return 0
+}
 
-write_disk_gpt || exit ${Abort}
-
-mixedgauge "Finished." 100
+create_bios_boot_partition || exit ${Abort}
 
 exit ${Continue}

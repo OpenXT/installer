@@ -851,13 +851,13 @@ install_vhds_and_vms()
     return 0
 }
 
-write_disk_mbr()
+write_disk_gpt()
 {
-    if [ "${INSTALL_MBR}" = "true" ] ; then
-        mixedgauge "Updating MBR..." 95
+    if [ "${INSTALL_GPT}" = "true" ] ; then
+        mixedgauge "Updating GPT..." 95
         local DISK_DEV="/dev/${TARGET_DISK}"
-        if ! do_cmd dd "if=${MBR_BINARY}" "of=${DISK_DEV}" >&2 ; then
-            echo "ERROR: Failure installing the disk MBR: aborting.">&2
+        if ! do_cmd sgdisk -g "${DISK_DEV}" >&2 ; then
+            echo "ERROR: Failure installing the disk GPT: aborting.">&2
             return 1
         fi
     fi

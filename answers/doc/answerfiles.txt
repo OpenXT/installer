@@ -143,10 +143,10 @@ will attempt to use the following options in order: "overwrite",
 "use-free-space", "erase-non-oem" and "erase-entire-disk".
 
 ######################################################################
-<install-mbr>true</install-mbr>
-<install-mbr>false</install-mbr>
-<install-mbr>auto</install-mbr>
-<install-mbr><install-mbr>
+<install-gpt>true</install-gpt>
+<install-gpt>false</install-gpt>
+<install-gpt>auto</install-gpt>
+<install-gpt><install-gpt>
 
 Optional.
 
