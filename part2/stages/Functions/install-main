@@ -540,31 +540,31 @@ create_efi_boot_entries()
 {
     local DISK_DEV="/dev/${TARGET_DISK}"
 
-    do_cmd efibootmgr -w -L "OpenXT (safe graphics)" -l "\EFI\BOOT\BOOTX64.EFI" -c -d ${DISK_DEV} --part 1 -u "openxt-support-safe-graphics" >&2
+    do_cmd efibootmgr -w -L "OpenXT (safe graphics)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-safe-graphics" >&2
     if [ "$?" != "0" ]; then
         echo "Couldn't create EFI boot entry" >&2
         return 1
     fi
 
-    do_cmd efibootmgr -w -L "OpenXT (AMT)" -l "\EFI\BOOT\BOOTX64.EFI" -c -d ${DISK_DEV} --part 1 -u "openxt-support-amt" >&2
+    do_cmd efibootmgr -w -L "OpenXT (AMT)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-amt" >&2
     if [ "$?" != "0" ]; then
         echo "Couldn't create EFI boot entry" >&2
         return 1
     fi
 
-    do_cmd efibootmgr -w -L "OpenXT (console)" -l "\EFI\BOOT\BOOTX64.EFI" -c -d ${DISK_DEV} --part 1 -u "openxt-support-console" >&2
+    do_cmd efibootmgr -w -L "OpenXT (console)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-console" >&2
     if [ "$?" != "0" ]; then
         echo "Couldn't create EFI boot entry" >&2
         return 1
     fi
 
-    do_cmd efibootmgr -w -L "OpenXT (console AMT)" -l "\EFI\BOOT\BOOTX64.EFI" -c -d ${DISK_DEV} --part 1 -u "openxt-support-console-amt" >&2
+    do_cmd efibootmgr -w -L "OpenXT (console AMT)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-console-amt" >&2
     if [ "$?" != "0" ]; then
         echo "Couldn't create EFI boot entry" >&2
         return 1
     fi
 
-    do_cmd efibootmgr -w -L "OpenXT" -l "\EFI\BOOT\BOOTX64.EFI" -c -d ${DISK_DEV} --part 1 >&2
+    do_cmd efibootmgr -w -L "OpenXT" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 >&2
     if [ "$?" != "0" ]; then
         echo "Couldn't create EFI boot entry" >&2
         return 1
@@ -596,6 +596,7 @@ copy_to_esp()
     fi
 
     do_cmd mkdir -p ${ESP_MOUNT}/EFI/BOOT >&2
+    do_cmd mkdir -p ${ESP_MOUNT}/EFI/OpenXT >&2
     do_cmd cp -f ${DOM0_MOUNT}/boot/xen.efi \
           ${DOM0_MOUNT}/boot/shimx64.efi \
           ${DOM0_MOUNT}/boot/bzImage \
@@ -603,16 +604,20 @@ copy_to_esp()
           ${DOM0_MOUNT}/boot/microcode_intel.bin \
           ${DOM0_MOUNT}/etc/xen/xenrefpolicy/policy/policy.24 \
           ${DOM0_MOUNT}/usr/share/xenclient/bootloader/openxt.cfg \
-          ${ESP_MOUNT}/EFI/BOOT >&2
+          ${DOM0_MOUNT}/usr/share/xenclient/bootloader/BOOT.CSV \
+          ${ESP_MOUNT}/EFI/OpenXT >&2
 
     if [ "$?" != "0" ]; then
         echo "Failed to copy files to ESP" >&2
         do_cmd umount ${ESP_MOUNT}
         return 1
     fi
-    # Copy the shim to the EFI removable path to work around buggy firmwares
-    do_cmd cp -f ${ESP_MOUNT}/EFI/BOOT/shimx64.efi \
+
+    # Copy the shim and fallback to the EFI removable path to work around buggy firmwares
+    do_cmd cp -f ${ESP_MOUNT}/EFI/OpenXT/shimx64.efi \
           ${ESP_MOUNT}/EFI/BOOT/BOOTX64.EFI >&2
+    do_cmd cp -f ${DOM0_MOUNT}/boot/fbx64.efi \
+          ${ESP_MOUNT}/EFI/BOOT >&2
     do_cmd sync >&2
 
     do_cmd umount ${ESP_MOUNT} >&2
