@@ -80,7 +80,6 @@ done
 
 # Remove GPT partition table
 do_cmd sgdisk -Z /dev/${TARGET_DISK} >&2
-do_cmd vgchange -a n >&2 || exit ${Abort}
-do_cmd hdparm -z /dev/${TARGET_DISK} >&2
+reread_partition_table "/dev/${TARGET_DISK}"
 
 exit ${Continue}
