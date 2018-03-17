@@ -41,7 +41,7 @@ dialog --no-cancel --editbox /tmp/install-fail.txt 15 70 2>${INSTALL_DATA}/user-
 hide_cursor
 
 # Eventually remounts required file systems read-only to recover logs
-do_cmd vgscan --mknodes >&2
+do_cmd vgscan >&2
 do_cmd vgchange -a y >&2
 
 mkdir -p ${STATUS_MOUNT}
