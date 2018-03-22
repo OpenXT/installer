@@ -24,10 +24,10 @@
 
 # Answerfile tags:
 #
-# <install-mbr>true</install-mbr>
-# <install-mbr>auto</install-mbr>
-# <install-mbr>false</install-mbr>
-# <install-mbr><install-mbr>
+# <install-gpt>true</install-gpt>
+# <install-gpt>auto</install-gpt>
+# <install-gpt>false</install-gpt>
+# <install-gpt><install-gpt>
 
 mbr_in_whitelist()
 {
@@ -42,34 +42,34 @@ mbr_in_whitelist()
 
 not_previous || exit ${Previous}
 
-if answerfile_specifies "install-mbr" ; then
-    INSTALL_MBR=$(read_xml_tag "${ANSWERFILE}" "install-mbr")
+if answerfile_specifies "install-gpt" ; then
+    INSTALL_GPT=$(read_xml_tag "${ANSWERFILE}" "install-gpt")
 
-    case "${INSTALL_MBR}" in
+    case "${INSTALL_GPT}" in
         true|false|auto)
             ;;
 
         "")
-            INSTALL_MBR="auto"
+            INSTALL_GPT="auto"
             ;;
 
         *)
-            echo "ERROR: Answerfile specifies unknown value '${INSTALL_MBR}'" \
-                 "for <install-mbr> tag." >&2
+            echo "ERROR: Answerfile specifies unknown value '${INSTALL_GPT}'" \
+                 "for <install-gpt> tag." >&2
             exit ${Abort}
     esac
 else
-    INSTALL_MBR="auto"
+    INSTALL_GPT="auto"
 fi
 
-if [ "${INSTALL_MBR}" = "auto" ] ; then
+if [ "${INSTALL_GPT}" = "auto" ] ; then
     if mbr_in_whitelist ; then
-        INSTALL_MBR="false"
+        INSTALL_GPT="false"
     else
-        INSTALL_MBR="true"
+        INSTALL_GPT="true"
     fi
 fi
 
-echo "INSTALL_MBR='${INSTALL_MBR}'" > ${MBR_CONF}
+echo "INSTALL_GPT='${INSTALL_GPT}'" > ${GPT_CONF}
 
 exit ${Continue}

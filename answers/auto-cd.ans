@@ -7,3 +7,5 @@
 <license-key></license-key>
 <skipready></skipready>
 <allow-dev-repo-cert>true</allow-dev-repo-cert>
+<partition-mode>erase-entire-disk</partition-mode>
+<install-gpt>true</install-gpt>

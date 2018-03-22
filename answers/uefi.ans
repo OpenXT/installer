@@ -1,0 +1,7 @@
+<interactive>true</interactive>
+<license-key></license-key>
+<quick-option>
+<skip-extra-supplemental-packs></skip-extra-supplemental-packs>
+</quick-option>
+<allow-dev-repo-cert>true</allow-dev-repo-cert>
+<partition-mode>erase-entire-disk</partition-mode>

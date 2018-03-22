@@ -7,9 +7,8 @@ Stash-passwords,              Continue:Pre-install-hook | Abort:Fail
 Pre-install-hook,             Continue:Welcome | Abort:Fail
 
 Welcome,                      Continue:EULA | Abort:Fail
-EULA,                         Continue:Check-host-capabilities | Decline:EULA-declined | Abort:Fail
+EULA,                         Continue:Check-GPU | Decline:EULA-declined | Abort:Fail
 EULA-declined,                Abort:Fail
-Check-host-capabilities,      Continue:Check-GPU | Abort:Fail
 Check-GPU,                    Continue:Configure-language | Abort:Fail
 Configure-language,           Continue:Configure-keyboard | Abort:Fail
 Configure-keyboard,           Continue:Configure-repo-cert | Abort:Fail

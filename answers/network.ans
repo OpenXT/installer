@@ -7,6 +7,7 @@ touch /tmp/preinstall.touch
 <source type="url">http://192.168.1.7/</source>
 <primary-disk>sda</primary-disk>
 <partition-mode>erase-entire-disk</partition-mode>
+<install-gpt>true</install-gpt>
 <network-interface mode="dhcp"></network-interface>
 <keyboard>us</keyboard>
 <password>*</password>

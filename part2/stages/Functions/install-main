@@ -388,6 +388,11 @@ commit_dom0()
 
     do_cmd mkdir -p ${DOM0_MOUNT}/storage/disks || return 1
 
+    copy_to_esp
+    if [ $? -eq 1 ]; then
+        return 1
+    fi
+
     install_bootloader_from_dom0fs || return 1
 
     mixedgauge "Taking ownership of TPM" 50
@@ -531,6 +536,100 @@ install_bootloader_from_dom0fs()
     return 0
 }
 
+create_efi_boot_entries()
+{
+    local DISK_DEV="/dev/${TARGET_DISK}"
+
+    do_cmd efibootmgr -w -L "OpenXT (safe graphics)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-safe-graphics" >&2
+    if [ "$?" != "0" ]; then
+        echo "Couldn't create EFI boot entry" >&2
+        return 1
+    fi
+
+    do_cmd efibootmgr -w -L "OpenXT (AMT)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-amt" >&2
+    if [ "$?" != "0" ]; then
+        echo "Couldn't create EFI boot entry" >&2
+        return 1
+    fi
+
+    do_cmd efibootmgr -w -L "OpenXT (console)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-console" >&2
+    if [ "$?" != "0" ]; then
+        echo "Couldn't create EFI boot entry" >&2
+        return 1
+    fi
+
+    do_cmd efibootmgr -w -L "OpenXT (console AMT)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-console-amt" >&2
+    if [ "$?" != "0" ]; then
+        echo "Couldn't create EFI boot entry" >&2
+        return 1
+    fi
+
+    do_cmd efibootmgr -w -L "OpenXT" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 >&2
+    if [ "$?" != "0" ]; then
+        echo "Couldn't create EFI boot entry" >&2
+        return 1
+    fi
+
+
+    # Remove duplicate entries (if any)
+    do_cmd efibootmgr -D >&2
+
+    return 0
+}
+
+copy_to_esp()
+{
+    local ESP=$(sfdisk -l -q | grep "EFI System" | awk '{ print $1 }')
+    if [ "${ESP}" == "" ]; then
+        echo "No EFI System Partition on disk ${DISK_DEV}" >&2
+        if [ -d /sys/firmware/efi/efivars ]; then
+            return 1
+        else
+            return 0
+        fi
+    fi
+
+    do_mount ${ESP} ${ESP_MOUNT} >&2
+    if [ "$?" != "0" ]; then
+        echo "Couldn't mount ${ESP}, already mounted?" >&2
+        return 1
+    fi
+
+    do_cmd mkdir -p ${ESP_MOUNT}/EFI/BOOT >&2
+    do_cmd mkdir -p ${ESP_MOUNT}/EFI/OpenXT >&2
+    do_cmd cp -f ${DOM0_MOUNT}/boot/xen.efi \
+          ${DOM0_MOUNT}/boot/shimx64.efi \
+          ${DOM0_MOUNT}/boot/bzImage \
+          ${DOM0_MOUNT}/boot/initramfs.gz \
+          ${DOM0_MOUNT}/boot/microcode_intel.bin \
+          ${DOM0_MOUNT}/etc/xen/xenrefpolicy/policy/policy.24 \
+          ${DOM0_MOUNT}/usr/share/xenclient/bootloader/openxt.cfg \
+          ${DOM0_MOUNT}/usr/share/xenclient/bootloader/BOOT.CSV \
+          ${ESP_MOUNT}/EFI/OpenXT >&2
+
+    if [ "$?" != "0" ]; then
+        echo "Failed to copy files to ESP" >&2
+        do_cmd umount ${ESP_MOUNT}
+        return 1
+    fi
+
+    # Copy the shim and fallback to the EFI removable path to work around buggy firmwares
+    do_cmd cp -f ${ESP_MOUNT}/EFI/OpenXT/shimx64.efi \
+          ${ESP_MOUNT}/EFI/BOOT/BOOTX64.EFI >&2
+    do_cmd cp -f ${DOM0_MOUNT}/boot/fbx64.efi \
+          ${ESP_MOUNT}/EFI/BOOT >&2
+    do_cmd sync >&2
+
+    do_cmd umount ${ESP_MOUNT} >&2
+
+    if [ -d /sys/firmware/efi/efivars ]; then
+        create_efi_boot_entries
+        return $?
+    fi
+
+    return 0
+}
+
 install_uivm()
 {
     # Warning: A failed upgrade must leave the system untouched, so it is
@@ -566,21 +665,10 @@ install_uivm()
         rm -f /tmp/${VHD_FILENAME}
         ln -s ${UIVM_GCONF_VHD}.new /tmp/${VHD_FILENAME}
         do_cmd vhd-util key -n /tmp/${VHD_FILENAME} -k ${UIVM_GCONF_VHD_KEY} -s
-        local KEY_FOLDER=`dirname ${UIVM_GCONF_VHD_KEY}`
-        local UIVM_GCONF_DEV=`TAPDISK2_CRYPTO_KEYDIR=${KEY_FOLDER} TAPDISK3_CRYPTO_KEYDIR=${KEY_FOLDER} tap-ctl create -a "vhd:/tmp/${VHD_FILENAME}"`
-        if ! tap-ctl list | grep -q ${VHD_FILENAME}; then
-            tap-ctl destroy -d ${UIVM_GCONF_DEV} >&2
-            rm -f ${UIVM_GCONF_VHD}.new >&2
-            rm -f /tmp/${VHD_FILENAME}
-            return 1
-        fi
-
-        write_rootfs "none" "none" ${UIVM_GCONF_DEV} >&2 || return 1
 
         # We won't need it anymore.
         rm -f /tmp/${VHD_FILENAME}
         do_cmd sync >&2
-        tap-ctl destroy -d ${UIVM_GCONF_DEV} >&2
     fi
 }
 
@@ -740,21 +828,7 @@ create_swap_vhd()
 
     do_cmd vhd-util create -n "${VHD}" -s "${SIZE_IN_MB}" -r || return 1
 
-    local DEV=$(tap-ctl create -a "vhd:${VHD}")
-    if ! tap-ctl list | grep -q "${VHD}" ; then
-        do_cmd tap-ctl destroy -d "${DEV}" >&2
-        rm -f "${VHD}" >&2
-        return 1
-    fi
-
-    if ! do_cmd mkswap "${DEV}" >&2 ; then
-        do_cmd tap-ctl destroy -d "${DEV}" >&2
-        rm -f "${VHD}" >&2
-        return 1
-    fi
-
     do_cmd sync >&2
-    do_cmd tap-ctl destroy -d "${DEV}" >&2
 }
 
 install_file()
@@ -851,13 +925,13 @@ install_vhds_and_vms()
     return 0
 }
 
-write_disk_mbr()
+write_disk_gpt()
 {
-    if [ "${INSTALL_MBR}" = "true" ] ; then
-        mixedgauge "Updating MBR..." 95
+    if [ "${INSTALL_GPT}" = "true" ] ; then
+        mixedgauge "Updating GPT..." 95
         local DISK_DEV="/dev/${TARGET_DISK}"
-        if ! do_cmd dd "if=${MBR_BINARY}" "of=${DISK_DEV}" >&2 ; then
-            echo "ERROR: Failure installing the disk MBR: aborting.">&2
+        if ! do_cmd sgdisk -g "${DISK_DEV}" >&2 ; then
+            echo "ERROR: Failure installing the disk GPT: aborting.">&2
             return 1
         fi
     fi
