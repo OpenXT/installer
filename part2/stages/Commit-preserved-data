@@ -26,6 +26,9 @@ for FILE in ${ALL_DOM0_CONFIGS} ; do
     do_cmd mv "${FILE}.new" "${FILE}" || exit ${Abort}
 done
 
+# Fix SELinux labeling in /boot/system/config
+do_cmd chroot ${DOM0_MOUNT} sh -c "/sbin/setfiles /etc/selinux/xc_policy/contexts/files/file_contexts /boot/system/config" >&2
+
 # FIXME: Temporary hack to test out the approach of writing config files for
 # dom0 first boot to /config/install rather than /boot/system/config.
 . "${INSTALL_MODE_CONF}"
