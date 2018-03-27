@@ -149,7 +149,7 @@ a fresh install?" 17 55
     exit ${Abort}
 }
 
-do_cmd vgscan --mknodes >&2
+do_cmd vgscan >&2
 do_cmd vgchange -a y xenclient >&2
 
 detect_prior_installation

@@ -18,7 +18,7 @@
 #
 
 create_lv() {
-    local dfl_opts="--zero y"
+    local dfl_opts="--zero n"
     local vg=$1
     local name=$2
     shift 2
@@ -26,7 +26,7 @@ create_lv() {
 
     local version="$(lvcreate --version | sed -ne 's/\s\+LVM version:\s\+\([^0-9.]*\([0-9.]*\)\).*/\1/p')"
     if version_ge ${version} "2.02.105"; then
-        dfl_opts="${dfl_opts} --wipesignatures y --yes"
+        dfl_opts="${dfl_opts} --wipesignatures n --yes"
     fi
 
     lvcreate ${dfl_opts} --name ${name} ${opts} ${vg}
@@ -49,7 +49,7 @@ mk_xc_lvm()
 
     do_cmd lvresize -f /dev/xenclient/storage -L-1G || return 1
 
-    do_cmd vgscan --mknodes || return 1
+    do_cmd vgscan || return 1
     do_cmd vgchange -a y xenclient || return 1
 }
 
