@@ -62,8 +62,16 @@ create_xc_partition()
     # This is likely not needed for a GPT-based disk, but a small portion of BIOS's will
     # refuse to boot if it is not set
     do_cmd sgdisk -A ${PARTITION_NUM}:set:${BOOT_FLAG_BIT} "${DISK_DEV}" >&2
-    # Also set the boot flag for the protective MBR, some BIOSes refuse to boot without that as well
-    do_cmd parted "${DISK_DEV}" disk_toggle pmbr_boot
+
+    # Set the active boot flag for the protective MBR if in legacy mode
+    # Some BIOSes will refuse to use a GPT scheme on legacy boot without it
+    # Note that setting this flag will prevent the disk from booting in UEFI mode
+    if [[ ! -e /sys/firmware/efi ]] ; then
+        do_cmd parted "${DISK_DEV}" disk_set pmbr_boot on
+    else
+        do_cmd parted "${DISK_DEV}" disk_set pmbr_boot off
+    fi
+
     echo "New partition layout:" >&2
     gdisk -l "${DISK_DEV}" >&2
 
