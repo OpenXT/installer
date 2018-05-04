@@ -167,25 +167,6 @@ case $? in
         ;;
 esac
 
-# determine if TPM owner password is WKS
-# this isn't really necessary yet since we error out if TPM is owned
-tpm_is_owner_wks
-case $? in
-    0)  TSS_WELL_KNOWN_SECRET='true' ;;
-    1)  # this is an error condition but since we refuse to continue
-        # if TPM is owned we won't get here ... yet
-        TSS_WELL_KNOWN_SECRET='false' ;;
-    2)  echo "can't tell if owner password is WKS" >&2
-        exit ${Abort}
-        ;;
-    3)  echo "TPM in dictionary attack timeout" >& 2
-        exit ${TpmTimeout}
-        ;;
-    *)  echo "tpm_is_owner_wks: This shouldn't happen!" >&2
-        exit ${Abort}
-        ;;
-esac
-
 [ "${TPM_OWNED}" = "true" ] && {
     tpm_check_owner_password "$(get_own_key)"
     case $? in
@@ -244,7 +225,6 @@ echo "TPM_STATE='${TPM_STATE}'" >> ${MEASURED_LAUNCH_CONF}
 echo "TPM_OWNED='${TPM_OWNED}'" >> ${MEASURED_LAUNCH_CONF}
 echo "TPM_SRK='${TPM_SRK}'" >> ${MEASURED_LAUNCH_CONF}
 echo "TPM_EK='${TPM_EK}'" >> ${MEASURED_LAUNCH_CONF}
-echo "TSS_WELL_KNOWN_SECRET='${TSS_WELL_KNOWN_SECRET}'" >> ${MEASURED_LAUNCH_CONF}
 echo "SRK_TSS_WELL_KNOWN_SECRET='${SRK_TSS_WELL_KNOWN_SECRET}'" >> ${MEASURED_LAUNCH_CONF}
 
 exit ${Continue}
