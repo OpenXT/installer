@@ -385,6 +385,9 @@ commit_dom0()
         return 1
     }
 
+    # Give udev a chance to create ${ROOT_DEV}
+    do_cmd udevadm settle
+
     mount_dom0 "${ROOT_DEV}" || return 1
 
     do_cmd mkdir -p ${DOM0_MOUNT}/storage/disks || return 1
