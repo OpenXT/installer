@@ -67,9 +67,9 @@ create_xc_partition()
     # Some BIOSes will refuse to use a GPT scheme on legacy boot without it
     # Note that setting this flag will prevent the disk from booting in UEFI mode
     if [[ ! -e /sys/firmware/efi ]] ; then
-        do_cmd parted "${DISK_DEV}" disk_set pmbr_boot on
+        do_cmd parted -s "${DISK_DEV}" disk_set pmbr_boot on
     else
-        do_cmd parted "${DISK_DEV}" disk_set pmbr_boot off
+        do_cmd parted -s "${DISK_DEV}" disk_set pmbr_boot off
     fi
 
     echo "New partition layout:" >&2
@@ -77,6 +77,7 @@ create_xc_partition()
 
     reread_partition_table "${DISK_DEV}" || return 1
 
+    echo "Zero-ing the first 512 bytes of ${PARTITION_DEV}:" >&2
     do_cmd dd if=/dev/zero of="${PARTITION_DEV}" bs=512 count=1
     do_cmd sync
 
