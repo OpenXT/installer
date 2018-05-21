@@ -49,8 +49,4 @@ mkdir -p "${INSTALL_SOURCE_DIR}"
 # Preserve a copy of the kernel command line
 cat </proc/cmdline >${KCMD_LINE}
 
-# if we're using linuxfb graphics (from grub) rather than mode 3
-# we need to enable text mode here. no-op for non graphical installs
-modprobe fbcon || true
-
 exit ${Continue}
