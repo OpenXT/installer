@@ -540,10 +540,22 @@ install_bootloader_from_dom0fs()
     return 0
 }
 
+remove_efi_boot_entries()
+{
+    echo "Removing any existing OpenXT bootloader entries" >&2
+    for entry in $( efibootmgr | awk '/ OpenXT/ { print $1 }' ); do
+        entry=${entry%\*}
+        entry=${entry#Boot}
+        do_cmd efibootmgr -B -b $entry >&2
+    done
+}
+
 create_efi_boot_entries()
 {
     local DISK_DEV="$( echo ${1} | sed -e 's/[[:digit:]]*$//' )"
     local PART="${1#$DISK_DEV}"
+
+    remove_efi_boot_entries
 
     do_cmd efibootmgr -w -L "OpenXT (safe graphics)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part ${PART} -u "openxt-support-safe-graphics" >&2
     if [ "$?" != "0" ]; then
