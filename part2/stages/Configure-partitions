@@ -377,9 +377,6 @@ partition_mode_is_unique()
         use-free-space)
             ;;
 
-        erase-entire-disk)
-            ;;
-
         erase-non-oem)
             # Check if equivalent to "erase-entire-disk".
             if [ -z "${OEM_PARTITIONS}" ] ; then
@@ -397,6 +394,23 @@ partition_mode_is_unique()
             if [ -z "${XC_PARTITION}" -a \
                  "${HAVE_UNUSED_PARTITION}" = "true" -a \
                  "${HAVE_FREE_SPACE}" = "true" ] ; then
+                return 1
+            fi
+            ;;
+
+        erase-entire-disk)
+            # Check if equivalent to "overwrite".
+            if [ "${XC_PARTITION}" -a \
+                 -z "${OEM_PARTITIONS}" -a \
+                 -z "${OTHER_PARTITIONS}" -a \
+                 "${HAVE_FREE_SPACE}" != "true" ] ; then
+                return 1
+            fi
+
+            # Check if equivalent to "use-free-space".
+            if [ -z "${XC_PARTITION}" -a \
+                 -z "${OEM_PARTITIONS}" -a \
+                 -z "${OTHER_PARTITIONS}" ] ; then
                 return 1
             fi
             ;;
