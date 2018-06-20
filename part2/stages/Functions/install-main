@@ -447,6 +447,9 @@ seal_system() {
             if is_mounted ${DOM0_MOUNT}/config ; then
                 echo "seal_system: /config is mounted, forward sealing key" >&2
 
+                # Update config.pcrs in case it has changed
+                write_config_pcrs "${DOM0_MOUNT}"
+
                 /etc/init.d/trousers stop
                 chroot ${DOM0_MOUNT} /usr/sbin/seal-system -f -r ${ROOT_DEV}
                 /etc/init.d/trousers start
