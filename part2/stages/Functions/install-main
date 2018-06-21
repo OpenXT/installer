@@ -543,35 +543,48 @@ install_bootloader_from_dom0fs()
     return 0
 }
 
+remove_efi_boot_entries()
+{
+    echo "Removing any existing OpenXT bootloader entries" >&2
+    for entry in $( efibootmgr | awk '/ OpenXT/ { print $1 }' ); do
+        entry=${entry%\*}
+        entry=${entry#Boot}
+        do_cmd efibootmgr -B -b $entry >&2
+    done
+}
+
 create_efi_boot_entries()
 {
-    local DISK_DEV="/dev/${TARGET_DISK}"
+    local DISK_DEV="$( echo ${1} | sed -e 's/[[:digit:]]*$//' )"
+    local PART="${1#$DISK_DEV}"
 
-    do_cmd efibootmgr -w -L "OpenXT (safe graphics)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-safe-graphics" >&2
+    remove_efi_boot_entries
+
+    do_cmd efibootmgr -w -L "OpenXT (safe graphics)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part ${PART} -u "openxt-support-safe-graphics" >&2
     if [ "$?" != "0" ]; then
         echo "Couldn't create EFI boot entry" >&2
         return 1
     fi
 
-    do_cmd efibootmgr -w -L "OpenXT (AMT)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-amt" >&2
+    do_cmd efibootmgr -w -L "OpenXT (AMT)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part ${PART} -u "openxt-support-amt" >&2
     if [ "$?" != "0" ]; then
         echo "Couldn't create EFI boot entry" >&2
         return 1
     fi
 
-    do_cmd efibootmgr -w -L "OpenXT (console)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-console" >&2
+    do_cmd efibootmgr -w -L "OpenXT (console)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part ${PART} -u "openxt-support-console" >&2
     if [ "$?" != "0" ]; then
         echo "Couldn't create EFI boot entry" >&2
         return 1
     fi
 
-    do_cmd efibootmgr -w -L "OpenXT (console AMT)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 -u "openxt-support-console-amt" >&2
+    do_cmd efibootmgr -w -L "OpenXT (console AMT)" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part ${PART} -u "openxt-support-console-amt" >&2
     if [ "$?" != "0" ]; then
         echo "Couldn't create EFI boot entry" >&2
         return 1
     fi
 
-    do_cmd efibootmgr -w -L "OpenXT" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part 1 >&2
+    do_cmd efibootmgr -w -L "OpenXT" -l "\EFI\OpenXT\shimx64.efi" -c -d ${DISK_DEV} --part ${PART} >&2
     if [ "$?" != "0" ]; then
         echo "Couldn't create EFI boot entry" >&2
         return 1
@@ -630,7 +643,7 @@ copy_to_esp()
     do_cmd umount ${ESP_MOUNT} >&2
 
     if [ -d /sys/firmware/efi/efivars ]; then
-        create_efi_boot_entries
+        create_efi_boot_entries ${ESP}
         return $?
     fi
 
