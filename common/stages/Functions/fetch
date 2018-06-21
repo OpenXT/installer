@@ -84,8 +84,12 @@ fetch_file_tftp()
     local REMOTE_LEAF=$(echo "${SOURCE_URL}" | \
                         sed -e 's,^tftp://[^/]*/,,g' )
 
-    [ -z "${REMOTE_HOST}" ] && REMOTE_HOST="dhcp"
-    local DHCP_PREFIX=$(cat /etc/dhcp-prefix)
+    if [ -z "${REMOTE_HOST}" ]; then
+        REMOTE_HOST="dhcp"
+    fi
+    if [ "${REMOTE_HOST}" = "dhcp" ]; then
+        DHCP_PREFIX=$(cat /etc/dhcp-prefix)
+    fi
 
     do_cmd tftp -l "${TARGET_FILE}" \
                 -r "${DHCP_PREFIX}/${REMOTE_LEAF}" \
