@@ -396,3 +396,30 @@ reread_partition_table()
     udevadm settle >&2
 }
 
+#-----------------------------------------------------------
+# Usage: get_devnode_disk /dev/(sd[a-z]\+[0-9]\+|/dev/nvme[0-9]\+n[0-9]\+p[0-9]\+)
+# Prints the disk component of the argument devnode on stdout.
+get_devnode_disk() {
+    local devnode="$1"
+    local disk
+
+    case "${devnode}" in
+        "/dev/nvme"*) disk="${devnode%p*}" ;;
+        "/dev/sd"*)   disk="${devnode%%[!/a-z]*}" ;;
+    esac
+    echo "${disk}"
+}
+
+#-----------------------------------------------------------
+# Usage: get_devnode_partition /dev/(sd[a-z]\+[0-9]\+|/dev/nvme[0-9]\+n[0-9]\+p[0-9]\+)
+# Prints the partition component of the argument devnode on stdout.
+get_devnode_partition() {
+    local devnode="$1"
+    local part
+
+    case "${devnode}" in
+        "/dev/nvme"*"p"*) part="${devnode##*nvme*n*p}" ;;
+        "/dev/sd"*)       part="${devnode##*/sd*[!0-9]}" ;;
+    esac
+    echo "${part}"
+}
