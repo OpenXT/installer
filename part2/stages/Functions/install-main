@@ -540,8 +540,9 @@ remove_efi_boot_entries()
 
 create_efi_boot_entries()
 {
-    local DISK_DEV="$( echo ${1} | sed -e 's/[[:digit:]]*$//' )"
-    local PART="${1#$DISK_DEV}"
+    local DEVNODE="$1"
+    local DISK_DEV="$(get_devnode_disk ${DEVNODE})"
+    local PART="$(get_devnode_partition ${DEVNODE})"
 
     remove_efi_boot_entries
 
