@@ -628,7 +628,7 @@ copy_to_esp()
 
     do_cmd umount ${ESP_MOUNT} >&2
 
-    if [ -d /sys/firmware/efi/efivars ]; then
+    if [ "${INSTALL_MODE}" = "fresh" ] && [ -d /sys/firmware/efi/efivars ]; then
         create_efi_boot_entries ${ESP}
         return $?
     fi
