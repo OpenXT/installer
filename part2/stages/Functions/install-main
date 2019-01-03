@@ -601,6 +601,14 @@ copy_to_esp()
         return 1
     fi
 
+    # make sure the ESP is starting from a clean slate
+    # if we're upgrading. prevents outdated files from
+    # older versions from populating the partition.
+    if [ "${INSTALL_MODE}" = "upgrade" ]; then
+        do_cmd rm -rf ${ESP_MOUNT}/EFI/BOOT >&2
+        do_cmd rm -rf ${ESP_MOUNT}/EFI/OpenXT >&2
+    fi
+
     do_cmd mkdir -p ${ESP_MOUNT}/EFI/BOOT >&2
     do_cmd mkdir -p ${ESP_MOUNT}/EFI/OpenXT >&2
     do_cmd cp -f ${DOM0_MOUNT}/boot/xen.efi \
