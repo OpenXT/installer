@@ -399,7 +399,7 @@ commit_dom0()
 
     install_bootloader_from_dom0fs || return 1
 
-    if [ "${MEASURE_LAUNCH}" = "true" ]; then
+    if [ "${MEASURE_LAUNCH}" = "true" ] && [ "${INSTALL_MODE}" = "fresh" ]; then
         mixedgauge "Taking ownership of TPM" 50
 
         own_tpm || return 1
@@ -1040,6 +1040,4 @@ own_tpm() {
     fi
 
     generate_policy "${own_key}"
-
-    return 0
 }
