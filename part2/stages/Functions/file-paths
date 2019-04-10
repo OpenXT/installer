@@ -70,6 +70,9 @@ ROOT_DEV="/dev/xenclient/root"
 # Directory used to mount new dom0 filesystem:
 DOM0_MOUNT="${MOUNT_ROOT}/dom0"
 
+# Directory used to mount upgrade compat
+UPGRADE_MOUNT="${MOUNT_ROOT}/upgrade"
+
 # Directory used to mount new ESP filesystem:
 ESP_MOUNT="${MOUNT_ROOT}/esp"
 

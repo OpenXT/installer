@@ -92,6 +92,10 @@ apply_xc_packages()
             file)
                 install_file "${PACKAGE_FILE}" "${DESTINATION}"
                 ;;
+            upgrade-compat)
+                mixedgauge "Installing upgrade-comat (please wait)...." 85
+                install_upgradecompat "${PACKAGE_FILE}" "${PACKAGE_TYPE}"
+                ;;
             exec)
                 # FIXME - revisit this.
                 #
@@ -147,6 +151,9 @@ commit_xc_packages()
                 ;;
             file)
                 commit_file "${DESTINATION}"
+                ;;
+            upgrade-compat)
+                true #Nothing to actually do here
                 ;;
             exec)
                 # FIXME - revisit this - see comment in apply_xc_packages.
@@ -315,6 +322,27 @@ install_dom0()
     finalize_keys "${RECOVERY_KEY}" "${PLATFORM_KEY}" "${CONFIG_KEY}" || return 1
 }
 
+# Minimal step to get the upgrade-compat rootfs unpacked
+# and installed as a LV, but only if we're upgrading from
+# a 32-bit machine.  We'll clean up the LV later
+install_upgradecompat()
+{
+
+    local UPGRADE_ROOTFS="$1"
+    local ROOTFS_TYPE="$2"
+    local COMPAT_SIZE_BYTES=$(zcat "${UPGRADE_ROOTFS}" | wc -c)
+    local COMPAT_LV_SIZE=$(((${COMPAT_SIZE_BYTES} / 1048576) + 1))M
+
+    if [ "$(uname -m)" = "i686" ]; then
+        do_cmd create_lv "xenclient" "upgradecompat" \
+            --size "${COMPAT_LV_SIZE}" >&2 || return 1
+            write_rootfs "${UPGRADE_ROOTFS}" "${ROOTFS_TYPE}" /dev/xenclient/upgradecompat >&2 || {
+                do_cmd lvremove -f /dev/xenclient/upgradecompat >&2
+                    return 1
+            }
+    fi
+}
+
 upgrade_dom0()
 {
     # Warning: A failed upgrade must leave the system untouched, so it is
@@ -446,9 +474,18 @@ seal_system() {
                 # Update config.pcrs in case it has changed
                 write_config_pcrs "${DOM0_MOUNT}"
 
-                /etc/init.d/trousers stop
-                chroot ${DOM0_MOUNT} /usr/sbin/seal-system -f -r ${ROOT_DEV}
-                /etc/init.d/trousers start
+                if [ "$(uname -m)" = "i686" ]; then
+                    mount_upgrade_compat
+                    /etc/init.d/trousers stop
+                    chroot ${UPGRADE_MOUNT} /usr/sbin/seal-system -f -r ${ROOT_DEV}
+                    /etc/init.d/trousers start
+                    umount_upgrade_compat
+                    do_cmd lvremove -f /dev/xenclient/upgradecompat
+                else
+                    /etc/init.d/trousers stop
+                    chroot ${DOM0_MOUNT} /usr/sbin/seal-system -f -r ${ROOT_DEV}
+                    /etc/init.d/trousers start
+                fi
 
                 do_umount_all ${DOM0_MOUNT}
 
@@ -482,6 +519,55 @@ mount_dom0()
     fi &&
     if grep -qs "^selinuxfs " /proc/mounts ; then
         do_mount -o bind /sys/fs/selinux ${DOM0_MOUNT}/sys/fs/selinux ||
+            return 1
+    fi
+}
+
+umount_upgrade_compat()
+{
+    do_umount ${UPGRADE_MOUNT}/boot/system &&
+    if grep -qs "^securityfs " /proc/mounts ; then
+        do_umount ${UPGRADE_MOUNT}/sys/kernel/security
+    fi &&
+    if grep -qs "^selinuxfs " /proc/mounts ; then
+        do_umount ${UPGRADE_MOUNT}/sys/fs/selinux
+    fi &&
+    do_umount ${UPGRADE_MOUNT}/proc &&
+    do_umount ${UPGRADE_MOUNT}/sys &&
+    do_umount ${UPGRADE_MOUNT}/dev &&
+    do_umount ${UPGRADE_MOUNT}/tmp &&
+    do_umount ${UPGRADE_MOUNT}/boot &&
+    do_umount ${UPGRADE_MOUNT}/config &&
+    do_umount ${UPGRADE_MOUNT}/etc/selinux/xc_policy/contexts/files &&
+    do_umount ${UPGRADE_MOUNT}/etc/xen/xenrefpolicy/policy &&
+    do_umount ${UPGRADE_MOUNT}
+}
+
+mount_upgrade_compat()
+{
+    local tmpfsopts="size=64M"
+    mkdir -p ${UPGRADE_MOUNT}
+
+    if selinux_enforced ; then
+        tmpfsopts="$tmpfsopts,rootcontext=system_u:object_r:tmp_t:s0"
+    fi
+
+    do_mount -o ro /dev/xenclient/upgradecompat ${UPGRADE_MOUNT} &&
+    do_mount -o bind /proc ${UPGRADE_MOUNT}/proc &&
+    do_mount -o bind /sys ${UPGRADE_MOUNT}/sys &&
+    do_mount -o bind /dev ${UPGRADE_MOUNT}/dev &&
+    do_mount -t tmpfs -o $tmpfsopts tmpfs ${UPGRADE_MOUNT}/tmp &&
+    do_mount -o bind ${DOM0_MOUNT}/boot ${UPGRADE_MOUNT}/boot &&
+    do_mount -o bind ${DOM0_MOUNT}/config ${UPGRADE_MOUNT}/config &&
+    do_mount -o bind ${DOM0_MOUNT}/etc/selinux/xc_policy/contexts/files/ ${UPGRADE_MOUNT}/etc/selinux/xc_policy/contexts/files/ &&
+    do_mount -o bind ${DOM0_MOUNT}/etc/xen/xenrefpolicy/policy/ ${UPGRADE_MOUNT}/etc/xen/xenrefpolicy/policy/ &&
+    do_mount /dev/xenclient/boot ${UPGRADE_MOUNT}/boot/system &&
+    if grep -qs "^securityfs " /proc/mounts ; then
+        do_mount -o bind /sys/kernel/security ${UPGRADE_MOUNT}/sys/kernel/security ||
+            return 1
+    fi &&
+    if grep -qs "^selinuxfs " /proc/mounts ; then
+        do_mount -o bind /sys/fs/selinux ${UPGRADE_MOUNT}/sys/fs/selinux ||
             return 1
     fi
 }
@@ -520,11 +606,21 @@ mount_config()
 
 install_bootloader_from_dom0fs()
 {
-    do_cmd chroot ${DOM0_MOUNT} \
-           /usr/share/xenclient/install-bootloader "${LANGUAGE}" >&2 || {
-        echo "Error installing the bootloader">&2
-        return 1
-    }
+    if [ "$(uname -m)" = "i686" ]; then
+        mount_upgrade_compat
+        do_cmd chroot ${UPGRADE_MOUNT} \
+               /usr/share/xenclient/install-bootloader "${LANGUAGE}" >&2 || {
+            echo "Error installing the bootloader">&2
+            return 1
+        }
+        umount_upgrade_compat
+    else
+        do_cmd chroot ${DOM0_MOUNT} \
+               /usr/share/xenclient/install-bootloader "${LANGUAGE}" >&2 || {
+            echo "Error installing the bootloader">&2
+            return 1
+        }
+    fi
     return 0
 }
 
