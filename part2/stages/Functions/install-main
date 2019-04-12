@@ -30,7 +30,11 @@ create_lv() {
     fi
 
     lvcreate ${dfl_opts} --name ${name} ${opts} ${vg}
+    ret=$?
+
     udevadm settle
+
+    return $ret
 }
 
 mk_xc_lvm()
