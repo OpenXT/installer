@@ -479,7 +479,7 @@ seal_system() {
                 write_config_pcrs "${DOM0_MOUNT}"
 
                 if [ "$(uname -m)" = "i686" ]; then
-                    mount_upgrade_compat
+                    mount_upgrade_compat || return 1
                     do_cmd /etc/init.d/trousers stop >&2
                     do_cmd chroot ${UPGRADE_MOUNT} \
                         /usr/sbin/seal-system -f -r ${ROOT_DEV} >&2
@@ -613,7 +613,7 @@ mount_config()
 install_bootloader_from_dom0fs()
 {
     if [ "$(uname -m)" = "i686" ]; then
-        mount_upgrade_compat
+        mount_upgrade_compat || return 1
         do_cmd chroot ${UPGRADE_MOUNT} \
                /usr/share/xenclient/install-bootloader "${LANGUAGE}" >&2 || {
             echo "Error installing the bootloader">&2
