@@ -450,9 +450,10 @@ seal_system() {
                 # Update config.pcrs in case it has changed
                 write_config_pcrs "${DOM0_MOUNT}"
 
-                /etc/init.d/trousers stop
-                chroot ${DOM0_MOUNT} /usr/sbin/seal-system -f -r ${ROOT_DEV}
-                /etc/init.d/trousers start
+                do_cmd /etc/init.d/trousers stop >&2
+                do_cmd chroot ${DOM0_MOUNT} \
+                    /usr/sbin/seal-system -f -r ${ROOT_DEV} >&2
+                do_cmd /etc/init.d/trousers start >&2
 
                 do_umount_all ${DOM0_MOUNT}
 
