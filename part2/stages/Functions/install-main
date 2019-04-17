@@ -90,7 +90,7 @@ apply_xc_packages()
                 install_syncvm "${PACKAGE_FILE}" "${PACKAGE_TYPE}"
                 ;;
             file)
-                install_file "${PACKAGE_FILE}" "${DESTINATION}"
+                install_file "${PACKAGE_FILE}" "${DESTINATION}" "${PACKAGE_TYPE}"
                 ;;
             upgrade-compat)
                 mixedgauge "Installing upgrade-comat (please wait)...." 85
@@ -951,10 +951,15 @@ install_file()
 
     local SRC="$1"
     local DST="$2"
+    local PACKAGE_TYPE="$3"
 
     mkdir -p $(dirname "${DOM0_MOUNT}/${DST}") || return 1
     rm -f "${DOM0_MOUNT}/${DST}.new" 2>/dev/null # ignore errors on this command.
-    cp "${SRC}" "${DOM0_MOUNT}/${DST}.new" || return 1
+    if [ "${PACKAGE_TYPE}" = "gz" ] ; then
+        do_cmd gunzip -c "${SRC}" > "${DOM0_MOUNT}/${DST}.new" || return 1
+    else
+        cp "${SRC}" "${DOM0_MOUNT}/${DST}.new" || return 1
+    fi
 
     return 0
 }
