@@ -30,7 +30,11 @@ create_lv() {
     fi
 
     lvcreate ${dfl_opts} --name ${name} ${opts} ${vg}
+    ret=$?
+
     udevadm settle
+
+    return $ret
 }
 
 mk_xc_lvm()
@@ -475,16 +479,18 @@ seal_system() {
                 write_config_pcrs "${DOM0_MOUNT}"
 
                 if [ "$(uname -m)" = "i686" ]; then
-                    mount_upgrade_compat
-                    /etc/init.d/trousers stop
-                    chroot ${UPGRADE_MOUNT} /usr/sbin/seal-system -f -r ${ROOT_DEV}
-                    /etc/init.d/trousers start
+                    mount_upgrade_compat || return 1
+                    do_cmd /etc/init.d/trousers stop >&2
+                    do_cmd chroot ${UPGRADE_MOUNT} \
+                        /usr/sbin/seal-system -f -r ${ROOT_DEV} >&2
+                    do_cmd /etc/init.d/trousers start >&2
                     umount_upgrade_compat
-                    do_cmd lvremove -f /dev/xenclient/upgradecompat
+                    do_cmd lvremove -f /dev/xenclient/upgradecompat >&2
                 else
-                    /etc/init.d/trousers stop
-                    chroot ${DOM0_MOUNT} /usr/sbin/seal-system -f -r ${ROOT_DEV}
-                    /etc/init.d/trousers start
+                    do_cmd /etc/init.d/trousers stop >&2
+                    do_cmd chroot ${DOM0_MOUNT} \
+                        /usr/sbin/seal-system -f -r ${ROOT_DEV} >&2
+                    do_cmd /etc/init.d/trousers start >&2
                 fi
 
                 do_umount_all ${DOM0_MOUNT}
@@ -607,7 +613,7 @@ mount_config()
 install_bootloader_from_dom0fs()
 {
     if [ "$(uname -m)" = "i686" ]; then
-        mount_upgrade_compat
+        mount_upgrade_compat || return 1
         do_cmd chroot ${UPGRADE_MOUNT} \
                /usr/share/xenclient/install-bootloader "${LANGUAGE}" >&2 || {
             echo "Error installing the bootloader">&2
