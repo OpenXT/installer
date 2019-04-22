@@ -24,6 +24,7 @@
 . ${PARTITION_CONF}
 . ${GPT_CONF}
 . ${SCRIPT_DIR}/Functions/install-main
+. ${INSTALL_MODE_CONF}
 
 TPM_FUNC=/usr/lib/tpm-scripts/tpm-functions
 MLE_FUNC=/usr/lib/openxt/ml-functions

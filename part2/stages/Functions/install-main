@@ -331,19 +331,20 @@ install_dom0()
 # a 32-bit machine.  We'll clean up the LV later
 install_upgradecompat()
 {
+    if [ "${INSTALL_MODE}" = "upgrade" ]; then
+        local UPGRADE_ROOTFS="$1"
+        local ROOTFS_TYPE="$2"
+        local COMPAT_SIZE_BYTES=$(zcat "${UPGRADE_ROOTFS}" | wc -c)
+        local COMPAT_LV_SIZE=$(((${COMPAT_SIZE_BYTES} / 1048576) + 1))M
 
-    local UPGRADE_ROOTFS="$1"
-    local ROOTFS_TYPE="$2"
-    local COMPAT_SIZE_BYTES=$(zcat "${UPGRADE_ROOTFS}" | wc -c)
-    local COMPAT_LV_SIZE=$(((${COMPAT_SIZE_BYTES} / 1048576) + 1))M
-
-    if [ "$(uname -m)" = "i686" ]; then
-        do_cmd create_lv "xenclient" "upgradecompat" \
-            --size "${COMPAT_LV_SIZE}" >&2 || return 1
-            write_rootfs "${UPGRADE_ROOTFS}" "${ROOTFS_TYPE}" /dev/xenclient/upgradecompat >&2 || {
-                do_cmd lvremove -f /dev/xenclient/upgradecompat >&2
-                    return 1
-            }
+        if [ "$(uname -m)" = "i686" ]; then
+            do_cmd create_lv "xenclient" "upgradecompat" \
+                --size "${COMPAT_LV_SIZE}" >&2 || return 1
+                write_rootfs "${UPGRADE_ROOTFS}" "${ROOTFS_TYPE}" /dev/xenclient/upgradecompat >&2 || {
+                    do_cmd lvremove -f /dev/xenclient/upgradecompat >&2
+                        return 1
+                }
+        fi
     fi
 }
 
@@ -612,7 +613,7 @@ mount_config()
 
 install_bootloader_from_dom0fs()
 {
-    if [ "$(uname -m)" = "i686" ]; then
+    if [ "$(uname -m)" = "i686" ] && [ "${INSTALL_MODE}" = "upgrade" ]; then
         mount_upgrade_compat || return 1
         do_cmd chroot ${UPGRADE_MOUNT} \
                /usr/share/xenclient/install-bootloader "${LANGUAGE}" >&2 || {

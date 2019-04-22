@@ -27,7 +27,7 @@ for FILE in ${ALL_DOM0_CONFIGS} ; do
 done
 
 ARCH=$(uname -m)
-if [ "$ARCH" = "i686" ]; then
+if [ "$ARCH" = "i686" ] && [ "${INSTALL_MODE}" = "upgrade" ]; then
     # Fix SELinux labeling in /boot/system/config
     # If we're upgrading from 32-bit we need to use our compat image
     # It should already be mounted.
