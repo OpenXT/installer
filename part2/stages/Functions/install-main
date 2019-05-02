@@ -448,7 +448,8 @@ seal_system() {
                 echo "seal_system: /config is mounted, forward sealing key" >&2
 
                 # Update config.pcrs in case it has changed
-                write_config_pcrs "${DOM0_MOUNT}"
+                do_cmd chroot ${DOM0_MOUNT} \
+                    sh -c '. /usr/lib/openxt/ml-functions ; write_config_pcrs' >&2
 
                 do_cmd /etc/init.d/trousers stop >&2
                 do_cmd chroot ${DOM0_MOUNT} \
