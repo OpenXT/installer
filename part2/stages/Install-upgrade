@@ -20,6 +20,8 @@
 . ${SCRIPT_DIR}/functions
 . "${SCRIPT_DIR}/Functions/install-main"
 
+. ${INSTALL_MODE_CONF}
+
 [ ! -r ${MEASURED_LAUNCH_CONF} ] || . ${MEASURED_LAUNCH_CONF}
 
 if [ -z "${PACKAGES_DIR}" ] ; then
