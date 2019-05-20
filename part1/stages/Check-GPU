@@ -56,4 +56,102 @@ if [ ${GPU_OK} -ne 0 ] ; then
     echo "Ignoring unrecognised graphics device.">&2
 fi
 
+get_vga_pci_info()
+{
+    lspci -m | grep "VGA"
+}
+
+get_pci_id()
+{
+    echo $1 | awk '{print $1}'
+}
+
+get_pci_bus()
+{
+    echo $1 | cut -d: -f 1
+}
+
+get_onboard_pci_id()
+{
+    OLD_IFS=$IFS
+    IFS="
+"
+    for vga_dev in $(get_vga_pci_info); do
+        vga_id="$(get_pci_id $vga_dev)"
+        if [ "$(get_pci_bus $vga_id)" -eq "00" ]; then
+            echo "$vga_id"
+            break
+        fi
+    done
+    IFS=${OLD_IFS}
+}
+
+# Sourced from https://stackoverflow.com/a/8811800
+# BusyBox capable substring search
+# Try to remove the search substring from the search target string
+# If the stripped string is the same as the original target, substing was not found
+contains() {
+    string="$1"
+    substring="$2"
+    if test "${string#*$substring}" != "$string"
+    then
+        return 0    # $substring is in $string
+    else
+        return 1    # $substring is not in $string
+    fi
+}
+
+check_vga()
+{
+    OLD_IFS=$IFS
+    IFS="
+"
+    oboard_pci="$(get_onboard_pci_id)"
+    for boot_vga in $(find /sys/ | grep boot_vga); do
+        if contains "$boot_vga" "$oboard_pci"; then
+            [ "$(cat $boot_vga)" -eq "1" ] || ret=1
+        fi
+    done
+    IFS=${OLD_IFS}
+    return ${ret}
+}
+
+
+warning=0
+if check_vga; then
+    msg="Onboard VGA device is boot VGA device"
+else
+    msg="Onboard VGA device is NOT boot VGA device"
+    warning=1
+fi
+
+echo -e ${msg} >&2
+
+if ! interactive ; then
+    [ "${warning}" -ne "1" ] || echo -e "\nWARNING: $msg Check the BIOS settings.\n">&2
+else
+    if [ "${warning}" -eq "1" ] ; then
+        DIALOGRC="${DIALOG_WARN_RC}" \
+            dialog --colors --yes-label "Continue" \
+                            --no-label  "Abort" \
+                   --yesno "$msg\n
+  \ZbYou should check your BIOS settings.\ZB\n
+\n
+The UIVM only displays via the onbaord VGA device,\n
+either change boot VGA device in the BIOS or change primary display after installation completes.\n
+\n
+To change BIOS settings:\n\n
+ 1. Reboot and enter the BIOS configuration.\n
+ 2. Set boot VGA device to the onboard VGA device.\n
+ 3. \ZbPower OFF the machine completely.\ZB\n
+\n" 0 0
+    OPT=$?
+    [ "${OPT}" != 255 ] || exit ${Previous}
+    [ "${OPT}" == 0 ]   || exit ${Abort}
+
+    echo "Onboard VGA device is not boot VGA device but continuing to install.">&2
+
+    fi
+fi
+
 exit ${Continue}
