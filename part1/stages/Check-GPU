@@ -68,18 +68,13 @@ contains() {
 
 check_vga()
 {
-    OLD_IFS=$IFS
-    IFS="
-"
     local onboard_pci="$(lspci -s 00: -d ::0300 | awk '{print $1}')"
-    for boot_vga in $(find /sys/ | grep boot_vga); do
+    for boot_vga in $(find /sys/ -name boot_vga); do
         if contains "$boot_vga" "$onboard_pci"; then
-            [ "$(cat $boot_vga)" -eq "1" ] || ret=1
+            [ "$(cat $boot_vga)" -eq "1" ] || return 1
             break
         fi
     done
-    IFS=${OLD_IFS}
-    return ${ret}
 }
 
 
