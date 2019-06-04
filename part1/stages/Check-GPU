@@ -98,7 +98,7 @@ else
                    --yesno "$msg\n
   \ZbYou should check your BIOS settings.\ZB\n
 \n
-The UIVM only displays via the onbaord VGA device,\n
+The UIVM only displays via the onboard VGA device,\n
 either change boot VGA device in the BIOS or change primary display after installation completes.\n
 \n
 To change BIOS settings:\n\n
