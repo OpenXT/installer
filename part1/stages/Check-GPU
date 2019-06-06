@@ -56,4 +56,61 @@ if [ ${GPU_OK} -ne 0 ] ; then
     echo "Ignoring unrecognised graphics device.">&2
 fi
 
+# Sourced from https://stackoverflow.com/a/8811800
+# BusyBox capable substring search
+# Try to remove the search substring from the search target string
+# If the stripped string is the same as the original target, substing was not found
+contains() {
+    local string="$1"
+    local substring="$2"
+    [ "${string#*$substring}" != "$string" ]
+}
+
+check_vga()
+{
+    local onboard_pci="$(lspci -s 00: -d ::0300 | awk '{print $1}')"
+    for boot_vga in $(find /sys/ -name boot_vga); do
+        if contains "$boot_vga" "$onboard_pci"; then
+            [ "$(cat $boot_vga)" -eq "1" ] || return 1
+            break
+        fi
+    done
+}
+
+
+warning=0
+if check_vga; then
+    msg="Onboard VGA device is boot VGA device"
+else
+    msg="Onboard VGA device is NOT boot VGA device"
+    warning=1
+fi
+
+echo -e ${msg} >&2
+
+if ! interactive ; then
+    [ "${warning}" -ne "1" ] || echo -e "\nWARNING: $msg Check the BIOS settings.\n">&2
+else
+    if [ "${warning}" -eq "1" ] ; then
+        DIALOGRC="${DIALOG_WARN_RC}" \
+            dialog --colors --yes-label "Continue" \
+                            --no-label  "Abort" \
+                   --yesno "$msg\n
+  \ZbYou should check your BIOS settings.\ZB\n
+\n
+The UIVM only displays via the onboard VGA device,\n
+either change boot VGA device in the BIOS or change primary display after installation completes.\n
+\n
+To change BIOS settings:\n\n
+ 1. Reboot and enter the BIOS configuration.\n
+ 2. Set boot VGA device to the onboard VGA device.\n
+ 3. \ZbPower OFF the machine completely.\ZB\n
+\n" 0 0
+    OPT=$?
+    [ "${OPT}" != 255 ] || exit ${Previous}
+    [ "${OPT}" == 0 ]   || exit ${Abort}
+
+    fi
+fi
+
 exit ${Continue}
