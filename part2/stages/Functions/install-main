@@ -591,7 +591,16 @@ create_efi_boot_entries()
 
 copy_to_esp()
 {
-    local ESP=$(sfdisk -l -q | grep "EFI System" | awk '{ print $1 }')
+    # TARGET_DISK not defined in upgrades; locate our
+    # installation disk manually.
+    if [ -z "${TARGET_DISK}" ]; then
+        local devnode="$(vgs xenclient --noheadings -o pv_name | sed 's/\s*//g')"
+        local disk="$(get_devnode_disk ${devnode})"
+    else
+        local disk="/dev/${TARGET_DISK}"
+    fi
+
+    local ESP=$(sfdisk -l -q "${disk}" | grep "EFI System" | awk '{ print $1 }')
     if [ "${ESP}" == "" ]; then
         echo "No EFI System Partition on disk ${DISK_DEV}" >&2
         if [ -d /sys/firmware/efi/efivars ]; then
