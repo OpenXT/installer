@@ -24,24 +24,13 @@
 
 # Remove every VG assigned to that disk.
 vgs=$(vgs --noheading -o vg_name)
-if [ -L ${TARGET_DISK} ]; then
-    dev="/dev/$(readlink ${TARGET_DISK})"
-else
-    dev="${TARGET_DISK}"
-fi
 for vg in ${vgs}; do
     # List all PV backing current VG.
     pvs="$(vgs --noheading -o pv_name ${vg})"
     pvs_on_target=""
     pvs_others=""
     for p in ${pvs}; do
-        if [ -L "${p}" ]; then
-            # NVMe will sometimes appear as symlinks to the actual device in
-            # the devfs (e.g: /dev/512GB_ -> nvme0n1p1).
-            dev="/dev/$(readlink ${p})"
-        else
-            dev="${p##/dev}"
-        fi
+        dev=$(sanitize_devnode "${p}")
         if [ "${dev##${TARGET_DISK}}" != "${dev}" ]; then
             pvs_on_target="${pvs_of_vg} ${dev}"
         else
