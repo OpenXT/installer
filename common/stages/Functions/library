@@ -397,10 +397,26 @@ reread_partition_table()
 }
 
 #-----------------------------------------------------------
+# Usage: sanitize_devnode /dev/device
+# Should /dev/device be a symlink alias, follow the link and print the block
+# device path on stdout.
+sanitize_devnode() {
+    local dev="$1"
+
+    if [ -h "${dev}" ]; then
+        # NVMe may have entries in /dev that are symblink aliases to their
+        # block device (e.g, /dev/512GB_68PS115OT8JQ-part1 -> nvme0n1p1)
+        readlink -f "${dev}"
+    else
+        echo "${dev}"
+    fi
+}
+
+#-----------------------------------------------------------
 # Usage: get_devnode_disk /dev/(sd[a-z]\+[0-9]\+|/dev/nvme[0-9]\+n[0-9]\+p[0-9]\+)
 # Prints the disk component of the argument devnode on stdout.
 get_devnode_disk() {
-    local devnode="$1"
+    local devnode=$(sanitize_devnode "$1")
     local disk
 
     case "${devnode}" in
@@ -414,7 +430,7 @@ get_devnode_disk() {
 # Usage: get_devnode_partition /dev/(sd[a-z]\+[0-9]\+|/dev/nvme[0-9]\+n[0-9]\+p[0-9]\+)
 # Prints the partition component of the argument devnode on stdout.
 get_devnode_partition() {
-    local devnode="$1"
+    local devnode=$(sanitize_devnode "$1")
     local part
 
     case "${devnode}" in
