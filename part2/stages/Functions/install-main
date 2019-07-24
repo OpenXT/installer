@@ -630,7 +630,7 @@ copy_to_esp()
           ${DOM0_MOUNT}/boot/shimx64.efi \
           ${DOM0_MOUNT}/boot/tboot \
           ${DOM0_MOUNT}/boot/bzImage \
-          ${DOM0_MOUNT}/boot/initramfs.gz \
+          ${DOM0_MOUNT}/boot/initrd \
           ${DOM0_MOUNT}/boot/*.bin \
           ${DOM0_MOUNT}/boot/*.BIN \
           ${DOM0_MOUNT}/etc/xen/xenrefpolicy/policy/policy.24 \
