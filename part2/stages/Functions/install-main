@@ -286,8 +286,8 @@ install_dom0()
     do_mount /dev/mapper/log    ${DOM0_MOUNT}/var/log       >&2 || return 1
     do_mount /dev/mapper/cores  ${DOM0_MOUNT}/var/cores     >&2 || return 1
 
-    # Reserve 4GB on storage
-    do_cmd falloc ${DOM0_MOUNT}/storage/xc-reserved 4096    >&2 || return 1
+    # Reserve 4GiB on storage
+    do_cmd fallocate ${DOM0_MOUNT}/storage/xc-reserved -l 4GiB  >&2 || return 1
 
     do_cmd mkdir ${DOM0_MOUNT}/storage/disks                >&2 || return 1
     do_cmd mkdir ${DOM0_MOUNT}/storage/import               >&2 || return 1
