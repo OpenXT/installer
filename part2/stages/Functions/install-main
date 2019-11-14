@@ -41,6 +41,8 @@ mk_xc_lvm()
 {
     local PARTITION_DEV="$1"
 
+    do_cmd vgchange -a n || return 1
+
     do_cmd pvcreate -ff -y "${PARTITION_DEV}" || return 1
     do_cmd vgcreate xenclient "${PARTITION_DEV}" || return 1
     do_cmd create_lv xenclient boot --size 12M || return 1
@@ -54,8 +56,7 @@ mk_xc_lvm()
 
     do_cmd lvresize -f /dev/xenclient/storage -L-1G || return 1
 
-    do_cmd vgscan || return 1
-    do_cmd vgchange -a y xenclient || return 1
+    do_cmd vgchange -a y || return 1
 }
 
 apply_xc_packages()
