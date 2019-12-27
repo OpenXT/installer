@@ -1,4 +1,4 @@
-#!/bin/ash
+#!/bin/ash -e
 #
 # Copyright (c) 2017 Assured Information Security, Inc.
 # 
@@ -21,6 +21,9 @@
 
 . ${DISK_CONF}
 # ^^^ defines ${TARGET_DISK}
+
+# Deactivate LVs in all VGs.
+do_cmd vgchange -a n >&2
 
 # Remove every VG assigned to that disk.
 vgs=$(vgs --noheading -o vg_name)
@@ -70,5 +73,8 @@ done
 # Remove GPT partition table
 do_cmd sgdisk -Z /dev/${TARGET_DISK} >&2
 reread_partition_table "/dev/${TARGET_DISK}"
+
+# Re-activate LVs in al VGs,
+do_cmd vgchange -a y >&2
 
 exit ${Continue}
