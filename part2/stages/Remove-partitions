@@ -1,4 +1,4 @@
-#!/bin/ash -e
+#!/bin/bash -e
 #
 # Copyright (c) 2017 Assured Information Security, Inc.
 # 

@@ -1,5 +1,5 @@
 <interactive>false</interactive>
-<preinstall>#!/bin/ash
+<preinstall>#!/bin/bash
 touch /tmp/preinstall.touch
 </preinstall>
 <eula accept="yes"></eula>
@@ -14,7 +14,7 @@ touch /tmp/preinstall.touch
 <recovery-password>RecoveryPassword</recovery-password>
 <enable-ssh>false</enable-ssh>
 <license-key>you-can-call-me-al</license-key>
-<postinstall>#!/bin/ash
+<postinstall>#!/bin/bash
 touch /tmp/postinstall.touch
 </postinstall>
 <allow-dev-repo-cert>true</allow-dev-repo-cert>

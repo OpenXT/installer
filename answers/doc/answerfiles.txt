@@ -354,7 +354,7 @@ If this tag is present, skip the "are you ready to install?"
 interactive screen.
 
 ######################################################################
-<preinstall>#!/bin/ash
+<preinstall>#!/bin/bash
 touch /tmp/i.was.here
 </preinstall>
 
@@ -365,7 +365,7 @@ Note that including answertags in the preinstall script may confuse
 the answerfile parser: caution advised.
 
 ######################################################################
-<postinstall>#!/bin/ash
+<postinstall>#!/bin/bash
 touch /tmp/no.i.wasnt
 </postinstall>
 

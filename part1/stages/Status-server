@@ -1,4 +1,4 @@
-#!/bin/ash
+#!/bin/bash
 #
 # Copyright (c) 2011 Citrix Systems, Inc.
 # 
@@ -70,7 +70,7 @@ SERVE_SCRIPT="/tmp/serve-script/sh"
 mkdir -p "$(dirname ${SERVE_SCRIPT})"
 
 cat >"${SERVE_SCRIPT}" <<EOF
-#!/bin/ash
+#!/bin/bash
 
 REPORT="${REPORT}"
 REDIRECT_FILE="${REDIRECT_FILE}"
