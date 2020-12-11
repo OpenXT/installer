@@ -44,13 +44,13 @@ EOF
 #------------------------------------------------------------------------------
 auto_detect()
 {
-    if [ "${DETECTED_REPO_COUNT}" = 1 ] ; then
+    if [ "${DETECTED_REPO_COUNT}" -eq "1" ] ; then
         echo "Installing using ${DETECTED_REPO_SOURCE}" >&2
         save_conf_and_exit "$DETECTED_REPO_SOURCE"
     else
-        if [ "${DETECTED_REPO_COUNT}" > 1 ] ; then
+        if [ "${DETECTED_REPO_COUNT}" -gt "1" ] ; then
             echo "Multiple repo locations detected: falling back to interactive menu mode.">&2 
-        elif [ "${DETECTED_REPO_COUNT}" = 0 ] ; then
+        elif [ "${DETECTED_REPO_COUNT}" -eq "0" ] ; then
             echo "No repo location found: falling back to interactive menu mode.">&2 
         fi
 
@@ -126,11 +126,11 @@ fi
                                 7 40 0 2>${CAPTURE}
     local OPT="$?"
 
-    if [ "${OPT}" != 0 ] ; then
+    if [ "${OPT}" -ne "0" ] ; then
         rm -f ${CAPTURE}
-        [ "${OPT}" == 1 ]   && exit ${Abort}
-        [ "${OPT}" == 123 ] && exit ${Previous}
-        [ "${OPT}" == 124 ] && exit ${Previous}
+        [ "${OPT}" -eq "1" ]   && exit ${Abort}
+        [ "${OPT}" -eq "123" ] && exit ${Previous}
+        [ "${OPT}" -eq "124" ] && exit ${Previous}
         exit ${Abort}
     fi
 
