@@ -20,7 +20,9 @@
 #------------------------------------------------------------
 list_cdrom_devices()
 {
-    sed -ne 's/^drive name:\s*//p' </proc/sys/dev/cdrom/info 2>/dev/null
+    if [ -e "/proc/sys/dev/cdrom/info" ]; then
+        sed -ne 's/^drive name:\s*//p' </proc/sys/dev/cdrom/info 2>/dev/null
+    fi
 }
 
 #------------------------------------------------------------
