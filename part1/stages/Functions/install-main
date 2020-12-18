@@ -113,14 +113,19 @@ extract_control_package()
 
     echo -e >&2 "Extracting control package" \
                 "\nType: ${PACKAGE_TYPE}" \
-                "\nFrom: ${PACKAGE_FILE}"
+                "\nFrom: ${PACKAGE_FILE}" \
+                "\nTo:   ${CONTROL_DIR}"
 
     case "${PACKAGE_TYPE}" in
         tarbz2)
-            bunzip2 -q -c "${PACKAGE_FILE}" | tar -x -f - -C "${CONTROL_DIR}"
+            if ! tar xjf "${PACKAGE_FILE}" -C "${CONTROL_DIR}"; then
+                echo "ERROR: Failure to extract ${PACKAGE_FILE}" >&2
+                return 1
+            fi
 
             if [ ! -x "${CONTROL_DIR}/${SUBGRAPH_SCRIPT}" ] ; then
-                echo "ERROR: Failure to extract ${PACKAGE_FILE}">&2
+                echo "ERROR: Invalid ${PACKAGE_FILE}, cannot find " \
+                    "${CONTROL_DIR}/${SUBGRAPH_SCRIPT}">&2
                 return 1
             fi
             ;;
