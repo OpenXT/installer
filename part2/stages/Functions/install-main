@@ -872,16 +872,27 @@ install_file()
     local SRC="$1"
     local DST="$2"
     local PACKAGE_TYPE="$3"
+    local config_mounted="0"
+    local RET="0"
 
-    mkdir -p $(dirname "${DOM0_MOUNT}/${DST}") || return 1
-    rm -f "${DOM0_MOUNT}/${DST}.new" 2>/dev/null # ignore errors on this command.
-    if [ "${PACKAGE_TYPE}" = "gz" ] ; then
-        do_cmd gunzip -c "${SRC}" > "${DOM0_MOUNT}/${DST}.new" || return 1
-    else
-        cp "${SRC}" "${DOM0_MOUNT}/${DST}.new" || return 1
+    if [ "$( expr substr "${DST}" 1 8 )" = "/config/" ] ; then
+        mount_config || return 1
+        config_mounted="1"
     fi
 
-    return 0
+    mkdir -p $(dirname "${DOM0_MOUNT}/${DST}") || RET="1"
+    rm -f "${DOM0_MOUNT}/${DST}.new" 2>/dev/null # ignore errors on this command.
+    if [ "${PACKAGE_TYPE}" = "gz" ] ; then
+        do_cmd gunzip -c "${SRC}" > "${DOM0_MOUNT}/${DST}.new" || RET="1"
+    else
+        cp "${SRC}" "${DOM0_MOUNT}/${DST}.new" || RET="1"
+    fi
+
+    if [ "$config_mounted" = "1" ] ; then
+        do_umount "${DOM0_MOUNT}/config"
+    fi
+
+    return "${RET}"
 }
 
 commit_file()
@@ -891,11 +902,22 @@ commit_file()
     # the system may be left in a broken state.
 
     local DST="$1"
+    local RET=0
+    local config_mounted=0
+
+    if [ "$( expr substr "${DST}" 1 8 )" = "/config/" ] ; then
+        mount_config || return 1
+        config_mounted="1"
+    fi
 
     rm -f "${DOM0_MOUNT}/${DST}"
-    mv "${DOM0_MOUNT}/${DST}.new" "${DOM0_MOUNT}/${DST}" || return 1
+    mv "${DOM0_MOUNT}/${DST}.new" "${DOM0_MOUNT}/${DST}" || RET=1
 
-    return 0
+    if [ "$config_mounted" = "1" ] ; then
+        do_umount "${DOM0_MOUNT}/config"
+    fi
+
+    return "${RET}"
 }
 
 exec_install_file()
