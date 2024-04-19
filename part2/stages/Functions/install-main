@@ -452,10 +452,9 @@ seal_system() {
                 do_cmd chroot ${DOM0_MOUNT} \
                     sh -c '. /usr/lib/openxt/ml-functions ; write_config_pcrs' >&2
 
-                do_cmd /etc/init.d/trousers stop >&2
-                do_cmd chroot ${DOM0_MOUNT} \
-                    /usr/sbin/seal-system -f -r ${ROOT_DEV} >&2
-                do_cmd /etc/init.d/trousers start >&2
+                # touch marker and let delayed-seal initscript handle
+                # sealing during shutdown when VMs aren't running.
+                touch /tmp/upgrade-delayed-seal
 
                 do_umount_all ${DOM0_MOUNT}
 
