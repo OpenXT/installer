@@ -22,6 +22,11 @@
 . ${DISK_CONF}
 # ^^^ defines ${TARGET_DISK}
 
+# Ensure /proc is mounted
+if ! mountpoint -q /proc; then
+    mount -t proc proc /proc || return 1
+fi
+
 # Deactivate LVs in all VGs.
 do_cmd vgchange -a n >&2
 

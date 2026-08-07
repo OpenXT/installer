@@ -41,6 +41,11 @@ mk_xc_lvm()
 {
     local PARTITION_DEV="$1"
 
+    # Ensure /proc is mounted
+    if ! mountpoint -q /proc; then
+        mount -t proc proc /proc || return 1
+    fi
+
     do_cmd vgchange -a n || return 1
 
     do_cmd pvcreate -ff -y "${PARTITION_DEV}" || return 1

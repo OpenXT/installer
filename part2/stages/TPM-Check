@@ -68,7 +68,7 @@ log_tpm_attrs() {
     tpm2=$?
     if [ "${tpm2}" -eq 0 ];
     then
-        tpm2_getcap --capability=properties-fixed >&2
+        tpm2_getcap properties-fixed >&2
     else
         tpm_version >&2
     fi
